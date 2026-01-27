@@ -5,7 +5,8 @@
 	--panel-strong: rgba(255, 255, 255, 0.9);
 	--glass-border: 1px solid rgba(255, 255, 255, 0.6);
 	--glass-outline: 1px solid rgba(15, 23, 42, 0.06);
-	--shadow-soft: 0 22px 72px rgba(12, 50, 91, 0.24);
+	--shadow-soft: 0 12px 32px rgba(12, 50, 91, 0.18);
+	--shadow-float: 0 8px 20px rgba(12, 50, 91, 0.18);
 	--shadow-ring: 0 0 0 1px rgba(14, 165, 233, 0.18);
 	--accent: #0ea5e9;
 	--accent-2: #10b981;
