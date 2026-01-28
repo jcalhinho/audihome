@@ -334,6 +334,15 @@ input[type='range']::-moz-range-thumb {
   margin-bottom: 10px;
 }
 
+.header-action {
+  transition: opacity 320ms ease;
+}
+
+.glass-card.is-collapsed .header-action {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .btn.small {
   padding: 6px 10px;
   font-size: 0.85rem;
@@ -367,6 +376,14 @@ input[type='range']::-moz-range-thumb {
   gap: 12px;
 }
 
+#card-controls {
+  margin-bottom: 30px;
+}
+
+#card-controls.collapsed {
+  margin-bottom: 0;
+}
+
 .wide-card .card-body {
   justify-content: space-between;
 }
@@ -376,7 +393,8 @@ input[type='range']::-moz-range-thumb {
 }
 
 @media (max-width: 900px) {
-  .controls-card .card-body { padding-bottom: 0; }
+.controls-card .card-body { padding-bottom: 0; }
+.controls-card .form-row { margin-top: 14px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -485,7 +503,7 @@ input[type='range']::-moz-range-thumb {
 .player-shell {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 24px;
 }
 
 .player-row {

@@ -75,8 +75,8 @@
   let micAnalyser: AnalyserNode | null = null;
   let micDataArray: ByteArr | null = null;
   let micActive = false;
-  let streamDbHistory: number[] = Array(120).fill(-80);
-  let micDbHistory: number[] = Array(120).fill(-80);
+  let streamDbHistory: number[] = Array(120).fill(0);
+  let micDbHistory: number[] = Array(120).fill(0);
   let timeLabels: string[] = Array(120).fill("");
   let tick = 0;
   let resizeHandler: (() => void) | null = null;
@@ -120,6 +120,8 @@
 
   // Controls
   let simSpeed = 120;
+  let lastStreamSampleTime = 0;
+  let lastMicSampleTime = 0;
 
   // Chart (simple sparkline data)
   const energyLevels = [
@@ -166,6 +168,7 @@
     if (!analyser && audio && audioCtx) {
       analyser = audioCtx.createAnalyser();
       analyser.fftSize = 64;
+      analyser.smoothingTimeConstant = 0.3;
       const bufferLength = analyser.frequencyBinCount;
       dataArray = new Uint8Array(bufferLength) as ByteArr;
     }
@@ -320,7 +323,9 @@
     const draw = () => {
       if (!analyser || !dataArray || !ctx) return;
       analyser.getByteFrequencyData(dataArray);
-      if (++tick % 4 === 0) {
+      const now = performance.now();
+      if (now - lastStreamSampleTime >= simSpeed) {
+        lastStreamSampleTime = now;
         pushDbSample("stream", getDbFromAnalyser(analyser, dataArray));
       }
       const barCount = 24;
@@ -381,6 +386,21 @@
     return Math.max(-80, Math.round(db * 10) / 10);
   };
 
+  const dbToLevel = (db: number) => {
+    const norm = Math.max(0, Math.min(1, (db + 80) / 80));
+    const boosted = Math.pow(norm, 0.6);
+    return Math.round(boosted * 80 * 10) / 10;
+  };
+
+  const hexToRgba = (hex: string, opacity: number) => {
+    const sanitized = hex.replace("#", "");
+    if (sanitized.length !== 6) return `rgba(0,0,0,${opacity})`;
+    const r = parseInt(sanitized.slice(0, 2), 16);
+    const g = parseInt(sanitized.slice(2, 4), 16);
+    const b = parseInt(sanitized.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+  };
+
   const pushDbSample = (kind: "stream" | "mic", db: number) => {
     const label = new Date().toLocaleTimeString([], {
       hour: "2-digit",
@@ -388,78 +408,93 @@
       second: "2-digit",
     });
     timeLabels = [...timeLabels.slice(1), label];
+    const level = dbToLevel(db) * volume;
     if (kind === "stream") {
-      streamDbHistory = [...streamDbHistory.slice(1), db];
+      streamDbHistory = [...streamDbHistory.slice(1), level];
     } else {
-      micDbHistory = [...micDbHistory.slice(1), db];
+      micDbHistory = [...micDbHistory.slice(1), level];
     }
     updateChart();
   };
 
   const updateChart = () => {
     if (!chart) return;
+    const fluxColor = "#0ea5e9";
+    const micColor = "#36ce9e";
     chart.setOption({
+      backgroundColor: "transparent",
       xAxis: {
         type: "category",
         data: timeLabels,
         boundaryGap: false,
         axisLabel: { color: "#4a5568", fontSize: 10 },
+        axisLine: { lineStyle: { color: "rgba(15,23,42,0.18)" } },
+        axisTick: { show: false },
       },
       yAxis: {
         type: "value",
-        min: -80,
-        max: 0,
+        min: 0,
+        max: 80,
         splitLine: {
           show: true,
-          lineStyle: { color: "rgba(255,255,255,0.25)" },
+          lineStyle: { color: "rgba(15,23,42,0.12)", type: "dashed" },
         },
         axisLabel: { color: "#4a5568", fontSize: 10, formatter: "{value} dB" },
+        axisLine: { lineStyle: { color: "rgba(15,23,42,0.18)" } },
+        axisTick: { show: false },
       },
       tooltip: {
         trigger: "axis",
-        backgroundColor: "rgba(15,23,42,0.8)",
-        borderWidth: 0,
-        textStyle: { color: "#fff" },
+        backgroundColor: "rgba(255,255,255,0.98)",
+        borderWidth: 1,
+        borderColor: "rgba(15,23,42,0.08)",
+        textStyle: { color: "#0f172a", fontSize: 12 },
+        extraCssText:
+          "border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,0.12);",
       },
-      grid: { left: 10, right: 10, top: 10, bottom: 18 },
+      grid: { left: 10, right: 10, top: 12, bottom: 22 },
       series: [
         {
           type: "line",
           name: "Flux",
           data: streamDbHistory,
           smooth: true,
+          symbolSize: 6,
+          showSymbol: false,
+          lineStyle: {
+            color: fluxColor,
+            width: 2.5,
+            shadowBlur: 10,
+            shadowColor: hexToRgba(fluxColor, 0.4),
+            shadowOffsetY: 6,
+          },
           areaStyle: {
             color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: "rgba(124,58,237,0.35)" },
-              { offset: 1, color: "rgba(14,165,233,0.05)" },
+              { offset: 0, color: hexToRgba(fluxColor, 0.28) },
+              { offset: 1, color: hexToRgba(fluxColor, 0.08) },
             ]),
           },
-          lineStyle: {
-            color: "#7c3aed",
-            width: 2,
-            shadowBlur: 10,
-            shadowColor: "rgba(124,58,237,0.35)",
-          },
-          showSymbol: false,
         },
         {
           type: "line",
           name: "Micro",
           data: micDbHistory,
           smooth: true,
-          areaStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: "rgba(14,165,233,0.3)" },
-              { offset: 1, color: "rgba(14,165,233,0.05)" },
-            ]),
-          },
+          symbolSize: 6,
+          showSymbol: false,
           lineStyle: {
-            color: "#0ea5e9",
+            color: micColor,
             width: 2,
             shadowBlur: 10,
-            shadowColor: "rgba(14,165,233,0.25)",
+            shadowColor: hexToRgba(micColor, 0.35),
+            shadowOffsetY: 6,
           },
-          showSymbol: false,
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: hexToRgba(micColor, 0.25) },
+              { offset: 1, color: hexToRgba(micColor, 0.06) },
+            ]),
+          },
         },
       ],
     });
@@ -493,7 +528,11 @@
     const loop = () => {
       if (!micActive || !micAnalyser || !micDataArray) return;
       micAnalyser.getByteFrequencyData(micDataArray);
-      pushDbSample("mic", getDbFromAnalyser(micAnalyser, micDataArray));
+      const now = performance.now();
+      if (now - lastMicSampleTime >= simSpeed) {
+        lastMicSampleTime = now;
+        pushDbSample("mic", getDbFromAnalyser(micAnalyser, micDataArray));
+      }
       requestAnimationFrame(loop);
     };
     loop();
@@ -719,7 +758,7 @@
             <h2>{key}</h2>
             {#if key === "Zones"}
               <button
-                class="btn ghost small"
+                class="btn ghost small header-action"
                 type="button"
                 on:click={toggleAllZones}
               >
@@ -727,29 +766,29 @@
               </button>
             {:else if key === "Chart"}
               <button
-                class="btn ghost small"
+                class="btn ghost small header-action"
                 type="button"
                 on:click={toggleMic}
               >
                 {micActive ? "Arrêter micro" : "Activer micro"}
               </button>
             {/if}
-            <button
-              class="btn ghost small toggle-mobile"
-              type="button"
-              aria-label={`${collapsed[key] ? "Ouvrir" : "Fermer"} ${key}`}
-              aria-expanded={!collapsed[key]}
-              aria-controls={`card-${key}`}
-              on:click={() => toggleCard(key)}
-            >
-              {collapsed[key] ? "Ouvrir" : "Fermer"}
-            </button>
-          </div>
+          <button
+            class="btn ghost small toggle-mobile"
+            type="button"
+            aria-label={`${collapsed[key] ? "Ouvrir" : "Fermer"} ${key}`}
+            aria-expanded={!collapsed[key]}
+            aria-controls={key === "Controls" ? "card-controls" : `card-${key}`}
+            on:click={() => toggleCard(key)}
+          >
+            {collapsed[key] ? "Ouvrir" : "Fermer"}
+          </button>
+        </div>
         </header>
 
         <div
           class={`card-body ${collapsed[key] ? "collapsed" : ""}`}
-          id={`card-${key}`}
+          id={key === "Controls" ? "card-controls" : `card-${key}`}
         >
           {#if key === "Player"}
             <div class="player-shell">
@@ -968,22 +1007,19 @@
           {:else}
             <div class="chart-shell">
               <div class="chart-header">
-                <div>
-                  <p class="eyebrow">Live dB</p>
-                  <p class="muted">Flux / Micro</p>
-                </div>
+                <p class="eyebrow">Live dB • Flux / Micro</p>
               </div>
               <div class="control">
                 <label for="sim">Vitesse simulation (ms)</label>
                 <input
                   id="sim"
                   type="range"
-                  min="60"
-                  max="240"
+                  min="100"
+                  max="500"
                   step="5"
                   bind:value={simSpeed}
                 />
-                <p class="hint">{simSpeed} ms • jitter doux</p>
+                <p class="hint">{simSpeed} ms</p>
               </div>
               <div bind:this={chartEl} class="echart"></div>
             </div>
