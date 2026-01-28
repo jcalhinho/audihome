@@ -122,7 +122,7 @@ button { font-family: var(--font-body); }
 .kpi .label { text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.72rem; color: var(--muted); }
 
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; font-size: 0.85rem; background: rgba(14, 165, 233, 0.1); color: var(--accent); border: 1px solid rgba(14, 165, 233, 0.22); }
-.pill.success { background: rgba(16,185,129,0.12); color: var(--accent-2); border-color: rgba(16,185,129,0.24); }
+.pill.success { background: rgba(16,185,129,0.12); color: #0b182f; border-color: rgba(16,185,129,0.24); }
 .pill.ghost { background: rgba(15,23,42,0.06); color: var(--text-soft); border-color: rgba(15,23,42,0.12); }
 .pill.warning { background: rgba(248,180,0,0.15); color: #c05621; border-color: rgba(248,180,0,0.28); }
 
@@ -137,15 +137,53 @@ button { font-family: var(--font-body); }
 .segmented button { border: none; background: transparent; padding: 8px 12px; border-radius: 999px; cursor: pointer; font-weight: 600; color: var(--text-soft); }
 .segmented button.active { background: linear-gradient(135deg, #0ea5e9, #7c3aed); color: white; box-shadow: var(--shadow-float); }
 
-.form-row { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 10px; }
+.form-row { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 30px; }
 .control { display: flex; flex-direction: column; gap: 2px; }
 .control label { font-weight: 600; color: var(--text-strong); }
-.control .volume-label { font-size: 12px; font-weight: 500; color: var(--text-soft); letter-spacing: 0.02em; }
+.control .volume-label { font-size: 10px; font-weight: 500; color: var(--text-soft); letter-spacing: 0.02em; }
 
 .global-volume { margin-bottom: 8px; }
 .global-volume input[type='range'] { width: 99.5%; }
 
 input[type='range'] { accent-color: var(--accent); }
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  margin-top: -4px;
+  background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+  border: 1px solid rgba(255,255,255,0.7);
+  box-shadow: 0 4px 12px rgba(14,165,233,0.35);
+}
+
+input[type='range']::-moz-range-track {
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+}
+
+input[type='range']::-moz-range-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+  border: 1px solid rgba(255,255,255,0.7);
+  box-shadow: 0 4px 12px rgba(14,165,233,0.35);
+}
 .toggle { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--radius-md); border: 1px solid rgba(15,23,42,0.08); background: rgba(255,255,255,0.78); }
 .toggle input { accent-color: var(--accent); width: 18px; height: 18px; }
 
@@ -190,6 +228,7 @@ input[type='range'] { accent-color: var(--accent); }
   flex-wrap: wrap;
   flex: 1;
   min-width: 0;
+  margin-bottom: 10px;
 }
 
 .btn.small {
@@ -278,6 +317,12 @@ input[type='range'] { accent-color: var(--accent); }
   display: flex;
   align-items: center;
   gap: 12px;
+  width: 100%;
+}
+
+.viz-shell {
+  flex: 1;
+  min-width: 0;
 }
 
 .icon-btn {
@@ -297,17 +342,18 @@ input[type='range'] { accent-color: var(--accent); }
 }
 
 .icon-btn.primary {
-  background: linear-gradient(135deg, #7c3aed, #0ea5e9);
+  background: linear-gradient(135deg, #0ea5e9, #38bdf8);
   color: #fff;
   border: none;
 }
 
 .viz {
-  flex: 1;
+  width: 100%;
   height: 60px;
   border-radius: 14px;
   background: rgba(255,255,255,0.55);
   box-shadow: inset 0 1px 6px rgba(12,50,91,0.16), var(--shadow-float);
+  display: block;
 }
 
 .player-meta {
@@ -612,7 +658,7 @@ input[type='range'] { accent-color: var(--accent); }
   width: 18px;
   left: 3px;
   top: 3px;
-  background: linear-gradient(135deg, #0ea5e9, #7c3aed);
+  background: linear-gradient(135deg, #0ea5e9, #38bdf8);
   border-radius: 50%;
   transition: transform 160ms ease;
   box-shadow: var(--shadow-float);

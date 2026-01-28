@@ -52,16 +52,23 @@
   let dataArray: ByteArr | null = null;
   let rafId: number | null = null;
   let canvasEl: HTMLCanvasElement | null = null;
+  let vizParent: HTMLDivElement | null = null;
+  let vizWidth = 0;
+  let vizHeight = 60;
+  let vizDpr = 1;
   let chartEl: HTMLDivElement | null = null;
   let chart: echarts.ECharts | null = null;
   let carouselViewport: HTMLOListElement | null = null;
   let carouselIndex = 0;
+  let pendingCarouselIndex = 0;
   let carouselRaf: number | null = null;
   let carouselTouchStartX = 0;
   let carouselTouchStartY = 0;
   let carouselTouchStartLeft = 0;
   let carouselTouchMoveHandler: ((event: TouchEvent) => void) | null = null;
   let carouselTouchStartHandler: ((event: TouchEvent) => void) | null = null;
+  let carouselTouchEndHandler: ((event: TouchEvent) => void) | null = null;
+  let carouselPointerUpHandler: ((event: PointerEvent) => void) | null = null;
   let micStream: MediaStream | null = null;
   let micAnalyser: AnalyserNode | null = null;
   let micDataArray: ByteArr | null = null;
@@ -76,11 +83,11 @@
   // Zones
   type Zone = { id: string; name: string; img: string; selected: boolean };
   let zones: Zone[] = [
-    { id: "salon", name: "Salon", img: "/salon.png", selected: false },
+    { id: "salon", name: "Salon", img: "/salon.png", selected: true },
     { id: "bureau", name: "Bureau", img: "/deskroom.png", selected: false },
     { id: "chambre", name: "Chambre", img: "/bedroom.png", selected: false },
     { id: "baby", name: "Chambre bébé", img: "/babyroom.png", selected: false },
-    { id: "cuisine", name: "Cuisine", img: "/kitchen.png", selected: false },
+    { id: "cuisine", name: "Cuisine", img: "/kitchen.png", selected: true },
     { id: "sdb", name: "Salle de bain", img: "/bathroom.png", selected: false },
   ];
   let attenuationDb: Record<string, number> = {
@@ -194,34 +201,107 @@
     const canvas = canvasEl;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    resizeViz();
     const draw = () => {
       if (!analyser || !dataArray || !ctx) return;
       analyser.getByteFrequencyData(dataArray);
       if (++tick % 4 === 0) {
         pushDbSample("stream", getDbFromAnalyser(analyser, dataArray));
       }
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const barWidth = (canvas.width / dataArray.length) * 1.6;
-      let x = 0;
-      for (let i = 0; i < dataArray.length; i++) {
-        const v = dataArray[i] / 255;
-        const barHeight = v * canvas.height;
+      const displayWidth = canvas.width / vizDpr;
+      const displayHeight = canvas.height / vizDpr;
+      ctx.setTransform(vizDpr, 0, 0, vizDpr, 0, 0);
+      ctx.clearRect(0, 0, displayWidth, displayHeight);
+      const padding = 6;
+      const innerWidth = Math.max(0, displayWidth - padding * 2);
+      const innerHeight = Math.max(0, displayHeight - padding * 2);
+      const targetBars = 24;
+      const barCount = targetBars;
+      const minFreq = 50;
+      const nyquist = (audioCtx?.sampleRate ?? 44100) / 2;
+      const maxFreq = Math.min(16000, nyquist);
+      const logRange = Math.log10(maxFreq / minFreq);
+      const barSlot = innerWidth / Math.max(1, barCount);
+      const barWidth = Math.max(2, barSlot * 0.65);
+      let x = padding + (barSlot - barWidth) / 2;
+      for (let i = 0; i < barCount; i++) {
+        const freq = minFreq * Math.pow(10, (i / (barCount - 1)) * logRange);
+        const bin = Math.min(
+          dataArray.length - 1,
+          Math.max(0, Math.round((freq / nyquist) * (dataArray.length - 1))),
+        );
+        const v =
+          (dataArray[bin - 1] ?? dataArray[bin] ?? 0) / 255 +
+          (dataArray[bin] ?? 0) / 255 +
+          (dataArray[bin + 1] ?? dataArray[bin] ?? 0) / 255;
+        const value = v / 3;
+        const norm = Math.log10(freq / minFreq) / logRange;
+        const tilt = 0.45 + 0.55 * norm;
+        const adjusted = Math.min(1, value * tilt * 1.1);
+        const barHeight = adjusted * innerHeight;
         const grad = ctx.createLinearGradient(
           0,
-          canvas.height - barHeight,
+          padding + innerHeight - barHeight,
           0,
-          canvas.height,
+          padding + innerHeight,
         );
-        grad.addColorStop(0, "#7c3aed");
+        grad.addColorStop(0, "#38bdf8");
         grad.addColorStop(1, "#0ea5e9");
         ctx.fillStyle = grad;
-        ctx.fillRect(x, canvas.height - barHeight, barWidth - 2, barHeight);
-        x += barWidth;
+        const y = padding + innerHeight - barHeight;
+        const radius = Math.min(6, barWidth / 2, barHeight / 2);
+        ctx.beginPath();
+        ctx.moveTo(x, y + radius);
+        ctx.arcTo(x, y, x + radius, y, radius);
+        ctx.lineTo(x + barWidth - radius, y);
+        ctx.arcTo(x + barWidth, y, x + barWidth, y + radius, radius);
+        ctx.lineTo(x + barWidth, y + barHeight);
+        ctx.lineTo(x, y + barHeight);
+        ctx.closePath();
+        ctx.fill();
+        x += barSlot;
       }
+
+      ctx.save();
+      ctx.strokeStyle = "rgba(15,23,42,0.22)";
+      ctx.fillStyle = "rgba(15,23,42,0.65)";
+      ctx.font = "9px system-ui, sans-serif";
+      const freqs = [30, 60, 120, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000];
+      let lastLabelX = -999;
+      freqs.forEach((freq) => {
+        const px = Math.round(
+          padding + innerWidth * (Math.log10(Math.max(freq, minFreq) / minFreq) / logRange),
+        );
+        if (px <= 8 || px >= displayWidth - 8) return;
+        ctx.beginPath();
+        ctx.moveTo(px, padding);
+        ctx.lineTo(px, displayHeight - padding);
+        ctx.stroke();
+        const label = freq >= 1000 ? `${freq / 1000}kHz` : `${freq}Hz`;
+        if (px - lastLabelX >= 28) {
+          ctx.fillText(label, px + 4, 12);
+          lastLabelX = px;
+        }
+      });
+      ctx.restore();
+
       rafId = requestAnimationFrame(draw);
     };
     if (rafId) cancelAnimationFrame(rafId);
     draw();
+  };
+
+  const resizeViz = () => {
+    if (!canvasEl || !vizParent) return;
+    const rect = vizParent.getBoundingClientRect();
+    if (!rect.width) return;
+    vizDpr = Math.min(window.devicePixelRatio || 1, 2);
+    vizWidth = rect.width;
+    vizHeight = 60;
+    canvasEl.width = Math.round(vizWidth * vizDpr);
+    canvasEl.height = Math.round(vizHeight * vizDpr);
+    canvasEl.style.width = `${vizWidth}px`;
+    canvasEl.style.height = `${vizHeight}px`;
   };
 
   const stopViz = () => {
@@ -371,7 +451,10 @@
 
   onMount(() => {
     initChart();
-    resizeHandler = () => chart?.resize();
+    resizeHandler = () => {
+      chart?.resize();
+      resizeViz();
+    };
     window.addEventListener("resize", resizeHandler);
     if (carouselViewport) {
       carouselTouchStartHandler = (event: TouchEvent) => {
@@ -393,14 +476,27 @@
           }
         }
       };
+      carouselTouchEndHandler = () => {
+        commitCarouselSelection();
+      };
+      carouselPointerUpHandler = () => {
+        commitCarouselSelection();
+      };
       carouselViewport.addEventListener("touchstart", carouselTouchStartHandler, {
         passive: true,
       });
       carouselViewport.addEventListener("touchmove", carouselTouchMoveHandler, {
         passive: false,
       });
+      carouselViewport.addEventListener("touchend", carouselTouchEndHandler, {
+        passive: true,
+      });
+      carouselViewport.addEventListener("pointerup", carouselPointerUpHandler, {
+        passive: true,
+      });
       requestAnimationFrame(handleCarouselScroll);
     }
+    resizeViz();
   });
 
   onDestroy(() => {
@@ -419,6 +515,12 @@
     }
     if (carouselViewport && carouselTouchMoveHandler) {
       carouselViewport.removeEventListener("touchmove", carouselTouchMoveHandler);
+    }
+    if (carouselViewport && carouselTouchEndHandler) {
+      carouselViewport.removeEventListener("touchend", carouselTouchEndHandler);
+    }
+    if (carouselViewport && carouselPointerUpHandler) {
+      carouselViewport.removeEventListener("pointerup", carouselPointerUpHandler);
     }
   });
 
@@ -447,20 +549,31 @@
         Math.max(0, rawIndex),
         Math.max(0, streams.length - 1),
       );
-      if (nextIndex !== carouselIndex) {
-        carouselIndex = nextIndex;
-        const next = streams[carouselIndex];
-        if (next && next.id !== current.id) {
-          setStream(next.id);
-        }
+      if (nextIndex !== pendingCarouselIndex) {
+        pendingCarouselIndex = nextIndex;
       }
     });
+  };
+
+  const commitCarouselSelection = () => {
+    if (pendingCarouselIndex === carouselIndex) return;
+    carouselIndex = pendingCarouselIndex;
+    const next = streams[carouselIndex];
+    if (next && next.id !== current.id) {
+      setStream(next.id);
+    }
   };
 
   const scrollToCarouselIndex = (index: number) => {
     if (!carouselViewport) return;
     const width = carouselViewport.clientWidth;
     const clamped = Math.min(Math.max(0, index), streams.length - 1);
+    pendingCarouselIndex = clamped;
+    carouselIndex = clamped;
+    const next = streams[clamped];
+    if (next && next.id !== current.id) {
+      setStream(next.id);
+    }
     carouselViewport.scrollTo({ left: clamped * width, behavior: "smooth" });
   };
 
@@ -528,19 +641,18 @@
                 >
                   {isPlaying ? "⏸" : "▶"}
                 </button>
-                <canvas
-                  class="viz"
-                  bind:this={canvasEl}
-                  width="360"
-                  height="60"
-                  aria-hidden="true"
-                ></canvas>
+                <div class="viz-shell" bind:this={vizParent}>
+                  <canvas
+                    class="viz"
+                    bind:this={canvasEl}
+                    aria-hidden="true"
+                  ></canvas>
+                </div>
               </div>
 
               <div class="player-meta">
                 <div>
                   <p class="eyebrow">En cours</p>
-                  <p class="title">{current.name}</p>
                 </div>
                 <span class="pill success">{current.credit}</span>
               </div>
@@ -615,7 +727,6 @@
                   </ol>
                 </aside>
               </section>
-              <p class="hint">Swipe ou utilise les points pour changer de radio.</p>
             </div>
           {:else if key === "Zones"}
             <div class="zone-grid">
