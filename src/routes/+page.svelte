@@ -1,16 +1,16 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
-  import * as echarts from 'echarts';
+  import { onDestroy, onMount } from "svelte";
+  import * as echarts from "echarts";
 
-  type CardKey = 'Zones' | 'Player' | 'KPIs' | 'Controls' | 'Chart';
-  const cards: CardKey[] = ['Player', 'Zones', 'KPIs', 'Controls', 'Chart'];
+  type CardKey = "Zones" | "Player" | "KPIs" | "Controls" | "Chart";
+  const cards: CardKey[] = ["Player", "Zones", "KPIs", "Controls", "Chart"];
 
   let collapsed: Record<CardKey, boolean> = {
     Zones: false,
     Player: false,
     KPIs: false,
     Controls: false,
-    Chart: false
+    Chart: false,
   };
 
   const toggleCard = (key: CardKey) => {
@@ -20,26 +20,29 @@
   // Player minimal (stream)
   const streams = [
     {
-      id: 'groove',
-      name: 'SomaFM — Groove Salad',
-      url: 'https://ice2.somafm.com/groovesalad-64-aac',
-      credit: 'SomaFM (AAC 64k)'
+      id: "groove",
+      name: "SomaFM — Groove Salad",
+      url: "https://ice2.somafm.com/groovesalad-64-aac",
+      credit: "SomaFM (AAC 64k)",
+      cover: "/salon.png",
     },
     {
-      id: 'swissjazz',
-      name: 'Radio Swiss Jazz',
-      url: 'https://stream.srg-ssr.ch/m/rsj/mp3_128',
-      credit: 'SRG SSR (MP3 128k)'
+      id: "swissjazz",
+      name: "Radio Swiss Jazz",
+      url: "https://stream.srg-ssr.ch/m/rsj/mp3_128",
+      credit: "SRG SSR (MP3 128k)",
+      cover: "/bedroom.png",
     },
     {
-      id: 'fip',
-      name: 'FIP HiFi',
-      url: 'https://icecast.radiofrance.fr/fip-hifi.aac',
-      credit: 'Radio France (AAC)'
-    }
+      id: "fip",
+      name: "FIP HiFi",
+      url: "https://icecast.radiofrance.fr/fip-hifi.aac",
+      credit: "Radio France (AAC)",
+      cover: "/deskroom.png",
+    },
   ];
   let current = streams[0];
-  let volume = 0.7;
+  let volume = 1;
   let isPlaying = false;
   let audio: HTMLAudioElement | null = null;
   let audioCtx: AudioContext | null = null;
@@ -51,13 +54,21 @@
   let canvasEl: HTMLCanvasElement | null = null;
   let chartEl: HTMLDivElement | null = null;
   let chart: echarts.ECharts | null = null;
+  let carouselViewport: HTMLOListElement | null = null;
+  let carouselIndex = 0;
+  let carouselRaf: number | null = null;
+  let carouselTouchStartX = 0;
+  let carouselTouchStartY = 0;
+  let carouselTouchStartLeft = 0;
+  let carouselTouchMoveHandler: ((event: TouchEvent) => void) | null = null;
+  let carouselTouchStartHandler: ((event: TouchEvent) => void) | null = null;
   let micStream: MediaStream | null = null;
   let micAnalyser: AnalyserNode | null = null;
   let micDataArray: ByteArr | null = null;
   let micActive = false;
   let streamDbHistory: number[] = Array(120).fill(-80);
   let micDbHistory: number[] = Array(120).fill(-80);
-  let timeLabels: string[] = Array(120).fill('');
+  let timeLabels: string[] = Array(120).fill("");
   let tick = 0;
   let resizeHandler: (() => void) | null = null;
   let gainNode: GainNode | null = null;
@@ -65,12 +76,12 @@
   // Zones
   type Zone = { id: string; name: string; img: string; selected: boolean };
   let zones: Zone[] = [
-    { id: 'salon', name: 'Salon', img: '/salon.png', selected: false },
-    { id: 'bureau', name: 'Bureau', img: '/deskroom.png', selected: false },
-    { id: 'chambre', name: 'Chambre', img: '/bedroom.png', selected: false },
-    { id: 'baby', name: 'Chambre bébé', img: '/babyroom.png', selected: false },
-    { id: 'cuisine', name: 'Cuisine', img: '/kitchen.png', selected: false },
-    { id: 'sdb', name: 'Salle de bain', img: '/bathroom.png', selected: false }
+    { id: "salon", name: "Salon", img: "/salon.png", selected: false },
+    { id: "bureau", name: "Bureau", img: "/deskroom.png", selected: false },
+    { id: "chambre", name: "Chambre", img: "/bedroom.png", selected: false },
+    { id: "baby", name: "Chambre bébé", img: "/babyroom.png", selected: false },
+    { id: "cuisine", name: "Cuisine", img: "/kitchen.png", selected: false },
+    { id: "sdb", name: "Salle de bain", img: "/bathroom.png", selected: false },
   ];
   let attenuationDb: Record<string, number> = {
     salon: 0,
@@ -78,7 +89,15 @@
     chambre: 0,
     baby: -12,
     cuisine: 0,
-    sdb: 0
+    sdb: 0,
+  };
+  let zoneVolume: Record<string, number> = {
+    salon: 1,
+    bureau: 1,
+    chambre: 1,
+    baby: 0.7,
+    cuisine: 1,
+    sdb: 1,
   };
 
   // KPIs dynamiques
@@ -86,13 +105,16 @@
 
   // Controls
   let simSpeed = 120;
-  let presence = { salon: true, chambre: false, baby: true };
 
   // Chart (simple sparkline data)
-  const energyLevels = [62, 65, 63, 67, 70, 66, 64, 62, 65, 68, 64, 63, 66, 67, 65];
+  const energyLevels = [
+    62, 65, 63, 67, 70, 66, 64, 62, 65, 68, 64, 63, 66, 67, 65,
+  ];
 
   const toggleZone = (id: string) => {
-    zones = zones.map((z) => (z.id === id ? { ...z, selected: !z.selected } : z));
+    zones = zones.map((z) =>
+      z.id === id ? { ...z, selected: !z.selected } : z,
+    );
     updateGain();
   };
 
@@ -107,10 +129,10 @@
   const ensureAudio = () => {
     if (!audio) {
       audio = new Audio();
-      audio.crossOrigin = 'anonymous';
+      audio.crossOrigin = "anonymous";
       audio.src = current.url;
-      audio.preload = 'auto';
-      audio.volume = volume;
+      audio.preload = "auto";
+      audio.volume = 1;
       audio.onended = () => (isPlaying = false);
     }
     if (!audioCtx) {
@@ -149,14 +171,13 @@
 
   const play = async () => {
     ensureAudio();
-    audio!.volume = volume;
     await audioCtx?.resume();
     try {
       await audio!.play();
       isPlaying = true;
       startViz();
     } catch (e) {
-      console.error('Playback failed', e);
+      console.error("Playback failed", e);
     }
   };
 
@@ -166,19 +187,18 @@
     stopViz();
   };
 
-  $: if (audio) audio.volume = volume;
   $: updateGain();
 
   const startViz = () => {
     if (!analyser || !dataArray || !canvasEl) return;
     const canvas = canvasEl;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const draw = () => {
       if (!analyser || !dataArray || !ctx) return;
       analyser.getByteFrequencyData(dataArray);
       if (++tick % 4 === 0) {
-        pushDbSample('stream', getDbFromAnalyser(analyser, dataArray));
+        pushDbSample("stream", getDbFromAnalyser(analyser, dataArray));
       }
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const barWidth = (canvas.width / dataArray.length) * 1.6;
@@ -186,9 +206,14 @@
       for (let i = 0; i < dataArray.length; i++) {
         const v = dataArray[i] / 255;
         const barHeight = v * canvas.height;
-        const grad = ctx.createLinearGradient(0, canvas.height - barHeight, 0, canvas.height);
-        grad.addColorStop(0, '#7c3aed');
-        grad.addColorStop(1, '#0ea5e9');
+        const grad = ctx.createLinearGradient(
+          0,
+          canvas.height - barHeight,
+          0,
+          canvas.height,
+        );
+        grad.addColorStop(0, "#7c3aed");
+        grad.addColorStop(1, "#0ea5e9");
         ctx.fillStyle = grad;
         ctx.fillRect(x, canvas.height - barHeight, barWidth - 2, barHeight);
         x += barWidth;
@@ -203,7 +228,7 @@
     if (rafId) cancelAnimationFrame(rafId);
     rafId = null;
     if (canvasEl) {
-      const ctx = canvasEl.getContext('2d');
+      const ctx = canvasEl.getContext("2d");
       ctx?.clearRect(0, 0, canvasEl.width, canvasEl.height);
     }
   };
@@ -215,6 +240,7 @@
     if (micStream) {
       micStream.getTracks().forEach((t) => t.stop());
     }
+    if (carouselRaf) cancelAnimationFrame(carouselRaf);
   });
 
   const getDbFromAnalyser = (an: AnalyserNode, arr: ByteArr) => {
@@ -225,10 +251,14 @@
     return Math.max(-80, Math.round(db * 10) / 10);
   };
 
-  const pushDbSample = (kind: 'stream' | 'mic', db: number) => {
-    const label = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const pushDbSample = (kind: "stream" | "mic", db: number) => {
+    const label = new Date().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
     timeLabels = [...timeLabels.slice(1), label];
-    if (kind === 'stream') {
+    if (kind === "stream") {
       streamDbHistory = [...streamDbHistory.slice(1), db];
     } else {
       micDbHistory = [...micDbHistory.slice(1), db];
@@ -239,30 +269,69 @@
   const updateChart = () => {
     if (!chart) return;
     chart.setOption({
-      xAxis: { type: 'category', data: timeLabels, boundaryGap: false, axisLabel: { color: '#4a5568', fontSize: 10 } },
-      yAxis: { type: 'value', min: -80, max: 0, splitLine: { show: false }, axisLabel: { color: '#4a5568', fontSize: 10, formatter: '{value} dB' } },
-     tooltip: { trigger: 'axis' },
-      grid: { left: 6, right: 6, top: 10, bottom: 8 },
+      xAxis: {
+        type: "category",
+        data: timeLabels,
+        boundaryGap: false,
+        axisLabel: { color: "#4a5568", fontSize: 10 },
+      },
+      yAxis: {
+        type: "value",
+        min: -80,
+        max: 0,
+        splitLine: {
+          show: true,
+          lineStyle: { color: "rgba(255,255,255,0.25)" },
+        },
+        axisLabel: { color: "#4a5568", fontSize: 10, formatter: "{value} dB" },
+      },
+      tooltip: {
+        trigger: "axis",
+        backgroundColor: "rgba(15,23,42,0.8)",
+        borderWidth: 0,
+        textStyle: { color: "#fff" },
+      },
+      grid: { left: 10, right: 10, top: 10, bottom: 18 },
       series: [
         {
-          type: 'line',
-          name: 'Flux',
+          type: "line",
+          name: "Flux",
           data: streamDbHistory,
           smooth: true,
-          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(124,58,237,0.35)' }, { offset: 1, color: 'rgba(14,165,233,0.05)' }]) },
-          lineStyle: { color: '#7c3aed', width: 2, shadowBlur: 10, shadowColor: 'rgba(124,58,237,0.35)' },
-          showSymbol: false
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: "rgba(124,58,237,0.35)" },
+              { offset: 1, color: "rgba(14,165,233,0.05)" },
+            ]),
+          },
+          lineStyle: {
+            color: "#7c3aed",
+            width: 2,
+            shadowBlur: 10,
+            shadowColor: "rgba(124,58,237,0.35)",
+          },
+          showSymbol: false,
         },
         {
-          type: 'line',
-          name: 'Micro',
+          type: "line",
+          name: "Micro",
           data: micDbHistory,
           smooth: true,
-          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(14,165,233,0.3)' }, { offset: 1, color: 'rgba(14,165,233,0.05)' }]) },
-          lineStyle: { color: '#0ea5e9', width: 2, shadowBlur: 10, shadowColor: 'rgba(14,165,233,0.25)' },
-          showSymbol: false
-        }
-      ]
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: "rgba(14,165,233,0.3)" },
+              { offset: 1, color: "rgba(14,165,233,0.05)" },
+            ]),
+          },
+          lineStyle: {
+            color: "#0ea5e9",
+            width: 2,
+            shadowBlur: 10,
+            shadowColor: "rgba(14,165,233,0.25)",
+          },
+          showSymbol: false,
+        },
+      ],
     });
   };
 
@@ -280,7 +349,10 @@
       micActive = false;
       return;
     }
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: false,
+    });
     if (!audioCtx) audioCtx = new AudioContext();
     micAnalyser = audioCtx.createAnalyser();
     micAnalyser.fftSize = 64;
@@ -291,7 +363,7 @@
     const loop = () => {
       if (!micActive || !micAnalyser || !micDataArray) return;
       micAnalyser.getByteFrequencyData(micDataArray);
-      pushDbSample('mic', getDbFromAnalyser(micAnalyser, micDataArray));
+      pushDbSample("mic", getDbFromAnalyser(micAnalyser, micDataArray));
       requestAnimationFrame(loop);
     };
     loop();
@@ -300,16 +372,53 @@
   onMount(() => {
     initChart();
     resizeHandler = () => chart?.resize();
-    window.addEventListener('resize', resizeHandler);
+    window.addEventListener("resize", resizeHandler);
+    if (carouselViewport) {
+      carouselTouchStartHandler = (event: TouchEvent) => {
+        const touch = event.touches[0];
+        if (!touch) return;
+        carouselTouchStartX = touch.clientX;
+        carouselTouchStartY = touch.clientY;
+        carouselTouchStartLeft = carouselViewport?.scrollLeft ?? 0;
+      };
+      carouselTouchMoveHandler = (event: TouchEvent) => {
+        const touch = event.touches[0];
+        if (!touch) return;
+        const dx = touch.clientX - carouselTouchStartX;
+        const dy = touch.clientY - carouselTouchStartY;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          event.preventDefault();
+          if (carouselViewport) {
+            carouselViewport.scrollLeft = carouselTouchStartLeft - dx;
+          }
+        }
+      };
+      carouselViewport.addEventListener("touchstart", carouselTouchStartHandler, {
+        passive: true,
+      });
+      carouselViewport.addEventListener("touchmove", carouselTouchMoveHandler, {
+        passive: false,
+      });
+      requestAnimationFrame(handleCarouselScroll);
+    }
   });
 
   onDestroy(() => {
     audio?.pause();
     stopViz();
     audioCtx?.close();
-    if (resizeHandler) window.removeEventListener('resize', resizeHandler);
+    if (resizeHandler) window.removeEventListener("resize", resizeHandler);
     if (micStream) {
       micStream.getTracks().forEach((t) => t.stop());
+    }
+    if (carouselViewport && carouselTouchStartHandler) {
+      carouselViewport.removeEventListener(
+        "touchstart",
+        carouselTouchStartHandler,
+      );
+    }
+    if (carouselViewport && carouselTouchMoveHandler) {
+      carouselViewport.removeEventListener("touchmove", carouselTouchMoveHandler);
     }
   });
 
@@ -319,18 +428,53 @@
     const attDb = selectedZones.length
       ? Math.min(...selectedZones.map((z) => attenuationDb[z.id] ?? 0))
       : 0;
+    const zoneVol = selectedZones.length
+      ? Math.min(...selectedZones.map((z) => zoneVolume[z.id] ?? 1))
+      : 1;
     const linear = Math.pow(10, attDb / 20);
-    gainNode.gain.value = volume * linear;
+    gainNode.gain.value = volume * zoneVol * linear;
+  };
+
+  const handleCarouselScroll = () => {
+    if (!carouselViewport) return;
+    if (carouselRaf) return;
+    carouselRaf = requestAnimationFrame(() => {
+      carouselRaf = null;
+      const width = carouselViewport?.clientWidth ?? 0;
+      if (!width) return;
+      const rawIndex = Math.round(carouselViewport.scrollLeft / width);
+      const nextIndex = Math.min(
+        Math.max(0, rawIndex),
+        Math.max(0, streams.length - 1),
+      );
+      if (nextIndex !== carouselIndex) {
+        carouselIndex = nextIndex;
+        const next = streams[carouselIndex];
+        if (next && next.id !== current.id) {
+          setStream(next.id);
+        }
+      }
+    });
+  };
+
+  const scrollToCarouselIndex = (index: number) => {
+    if (!carouselViewport) return;
+    const width = carouselViewport.clientWidth;
+    const clamped = Math.min(Math.max(0, index), streams.length - 1);
+    carouselViewport.scrollTo({ left: clamped * width, behavior: "smooth" });
   };
 
   $: activeZones = zones.filter((z) => z.selected).length;
-  $: appliedAtt =
-    activeZones ? Math.min(...zones.filter((z) => z.selected).map((z) => attenuationDb[z.id] ?? 0)) : 0;
+  $: appliedAtt = activeZones
+    ? Math.min(
+        ...zones.filter((z) => z.selected).map((z) => attenuationDb[z.id] ?? 0),
+      )
+    : 0;
   $: kpis = [
-    { label: 'Zones actives', value: activeZones },
-    { label: 'Atténuation', value: `${appliedAtt} dB` },
-    { label: 'Flux en cours', value: current.name },
-    { label: 'Volume', value: `${Math.round(volume * 100)}%` }
+    { label: "Zones actives", value: activeZones },
+    { label: "Atténuation", value: `${appliedAtt} dB` },
+    { label: "Flux en cours", value: current.name },
+    { label: "Volume", value: `${Math.round(volume * 100)}%` },
   ];
 </script>
 
@@ -341,34 +485,56 @@
 <main>
   <div class="grid" aria-label="cards grid">
     {#each cards as key (key)}
-      <section class={`glass-card ${key === 'Chart' ? 'chart-card' : ''} ${collapsed[key] ? 'is-collapsed' : ''}`}>
+      <section
+        class={`glass-card ${key === "Chart" ? "chart-card" : ""} ${collapsed[key] ? "is-collapsed" : ""}`}
+      >
         <header class="card-header">
-          <h2>{key}</h2>
+          <div class="card-title-row">
+            <h2>{key}</h2>
+            {#if key === "Zones"}
+              <button class="btn ghost small" type="button" on:click={toggleAllZones}>
+                {allSelected() ? "Tout décocher" : "Tout sélectionner"}
+              </button>
+            {:else if key === "Chart"}
+              <button class="btn ghost small" type="button" on:click={toggleMic}>
+                {micActive ? "Arrêter micro" : "Activer micro"}
+              </button>
+            {/if}
+          </div>
           <button
             class="toggle-mobile"
             type="button"
-            aria-label={`${collapsed[key] ? 'Ouvrir' : 'Fermer'} ${key}`}
+            aria-label={`${collapsed[key] ? "Ouvrir" : "Fermer"} ${key}`}
             aria-expanded={!collapsed[key]}
             aria-controls={`card-${key}`}
             on:click={() => toggleCard(key)}
           >
-            {collapsed[key] ? 'Ouvrir' : 'Fermer'}
+            {collapsed[key] ? "Ouvrir" : "Fermer"}
           </button>
         </header>
 
-        <div class={`card-body ${collapsed[key] ? 'collapsed' : ''}`} id={`card-${key}`}>
-          {#if key === 'Player'}
+        <div
+          class={`card-body ${collapsed[key] ? "collapsed" : ""}`}
+          id={`card-${key}`}
+        >
+          {#if key === "Player"}
             <div class="player-shell">
               <div class="player-row">
                 <button
-                  class={`icon-btn primary ${isPlaying ? 'active' : ''}`}
+                  class={`icon-btn primary ${isPlaying ? "active" : ""}`}
                   type="button"
                   on:click={isPlaying ? pause : play}
-                  aria-label={isPlaying ? 'Pause' : 'Lecture'}
+                  aria-label={isPlaying ? "Pause" : "Lecture"}
                 >
-                  {isPlaying ? '⏸' : '▶'}
+                  {isPlaying ? "⏸" : "▶"}
                 </button>
-                <canvas class="viz" bind:this={canvasEl} width="360" height="60" aria-hidden="true"></canvas>
+                <canvas
+                  class="viz"
+                  bind:this={canvasEl}
+                  width="360"
+                  height="60"
+                  aria-hidden="true"
+                ></canvas>
               </div>
 
               <div class="player-meta">
@@ -379,39 +545,84 @@
                 <span class="pill success">{current.credit}</span>
               </div>
 
-              <div class="track-stack">
-                {#each streams as s}
-                  <button
-                    class={`track ${s.id === current.id ? 'active' : ''}`}
-                    type="button"
-                    on:click={() => setStream(s.id)}
-                    aria-pressed={s.id === current.id}
-                  >
-                    <div class="track-text">
-                      <span class="track-title">{s.name}</span>
-                      <span class="track-sub">{s.credit}</span>
-                    </div>
-                    <span class="track-dot">{s.id === current.id ? '●' : '○'}</span>
-                  </button>
-                {/each}
-              </div>
-
-              <label class="control volume-row">
-                Volume ({Math.round(volume * 100)}%)
-                <input type="range" min="0" max="1" step="0.01" bind:value={volume} />
-              </label>
+              <section class="carousel" aria-label="Radios">
+                <ol
+                  class="carousel__viewport"
+                  bind:this={carouselViewport}
+                  on:scroll={handleCarouselScroll}
+                >
+                  {#each streams as s, index (s.id)}
+                    <li
+                      class="carousel__slide"
+                    >
+                      <div class="carousel__snapper">
+                        <button
+                          type="button"
+                          class="carousel__prev"
+                          on:click={() =>
+                            scrollToCarouselIndex(
+                              index === 0 ? streams.length - 1 : index - 1,
+                            )}
+                        >
+                          Précédent
+                        </button>
+                        <button
+                          type="button"
+                          class="carousel__next"
+                          on:click={() =>
+                            scrollToCarouselIndex(
+                              index === streams.length - 1 ? 0 : index + 1,
+                            )}
+                        >
+                          Suivant
+                        </button>
+                      </div>
+                      <button
+                        class={`carousel__card ${s.id === current.id ? "active" : ""}`}
+                        type="button"
+                        on:click={() => setStream(s.id)}
+                        aria-pressed={s.id === current.id}
+                      >
+                        <div class="carousel__cover">
+                          <img
+                            src={s.cover}
+                            alt={`Pochette ${s.name}`}
+                            loading="lazy"
+                          />
+                        </div>
+                        <div class="carousel__info">
+                          <span class="carousel__title">{s.name}</span>
+                          <span class="carousel__subtitle">{s.credit}</span>
+                        </div>
+                      </button>
+                    </li>
+                  {/each}
+                </ol>
+                <aside class="carousel__navigation">
+                  <ol class="carousel__navigation-list">
+                    {#each streams as s, index (s.id)}
+                      <li class="carousel__navigation-item">
+                        <button
+                          type="button"
+                          class="carousel__navigation-button"
+                          aria-label={`Aller à ${s.name}`}
+                          on:click={() => scrollToCarouselIndex(index)}
+                        >
+                          {index + 1}
+                        </button>
+                      </li>
+                    {/each}
+                  </ol>
+                </aside>
+              </section>
+              <p class="hint">Swipe ou utilise les points pour changer de radio.</p>
             </div>
-          {:else if key === 'Zones'}
-            <div class="zone-toolbar">
-              <button class="btn ghost" type="button" on:click={toggleAllZones}>
-                {allSelected() ? 'Tout décocher' : 'Tout sélectionner'}
-              </button>
-            </div>
+          {:else if key === "Zones"}
             <div class="zone-grid">
               {#each zones as zone (zone.id)}
                 <button
                   type="button"
-                  class={`zone-card ${zone.selected ? 'active' : ''}`}
+                  class={`zone-card ${zone.selected ? "active" : ""}`}
                   on:click={() => toggleZone(zone.id)}
                   aria-pressed={zone.selected}
                 >
@@ -433,7 +644,7 @@
                 </button>
               {/each}
             </div>
-          {:else if key === 'KPIs'}
+          {:else if key === "KPIs"}
             <div class="kpi-grid">
               {#each kpis as kpi}
                 <div class="kpi">
@@ -442,8 +653,20 @@
                 </div>
               {/each}
             </div>
-          {:else if key === 'Controls'}
-            <div class="form-row">
+          {:else if key === "Controls"}
+            <div class="control global-volume">
+              <label for="global-volume" class="volume-label">Volume global</label>
+              <input
+                id="global-volume"
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                bind:value={volume}
+              />
+              <p class="hint">{Math.round(volume * 100)}% • agit sur toutes les zones</p>
+            </div>
+            <div class="form-row zone-controls">
               {#each zones as zone}
                 <div class="control">
                   <label for={`att-${zone.id}`}>Atténuation {zone.name}</label>
@@ -456,10 +679,37 @@
                       updateGain();
                     }}
                   >
-                    <option value="0" selected={attenuationDb[zone.id] === 0}>0 dB</option>
-                    <option value="-6" selected={attenuationDb[zone.id] === -6}>-6 dB</option>
-                    <option value="-12" selected={attenuationDb[zone.id] === -12}>-12 dB</option>
+                    <option value="0" selected={attenuationDb[zone.id] === 0}
+                      >0 dB</option
+                    >
+                    <option value="-6" selected={attenuationDb[zone.id] === -6}
+                      >-6 dB</option
+                    >
+                    <option
+                      value="-12"
+                      selected={attenuationDb[zone.id] === -12}>-12 dB</option
+                    >
                   </select>
+                  <label for={`vol-${zone.id}`} class="volume-label">
+                    Volume {zone.name} ({Math.round(Math.min(1, (zoneVolume[zone.id] ?? 1) * volume) * 100)}%)
+                  </label>
+                  <input
+                    id={`vol-${zone.id}`}
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={Math.min(1, (zoneVolume[zone.id] ?? 1) * volume)}
+                    on:input={(e) => {
+                      const val = Number((e.target as HTMLInputElement).value);
+                      const base = volume > 0 ? val / volume : 0;
+                      zoneVolume = {
+                        ...zoneVolume,
+                        [zone.id]: Math.min(1, Math.max(0, base)),
+                      };
+                      updateGain();
+                    }}
+                  />
                 </div>
               {/each}
             </div>
@@ -468,19 +718,19 @@
               <div class="chart-header">
                 <div>
                   <p class="eyebrow">Live dB</p>
-                  <p class="muted">Flux radio / micro</p>
-                </div>
-                <div class="chart-meta">
-                  <span class="pill">{streamDbHistory[streamDbHistory.length - 1] ?? '-'} dB</span>
-                  <span class="pill ghost">{micDbHistory[micDbHistory.length - 1] ?? '-'} dB mic</span>
-                  <button class="btn ghost" type="button" on:click={toggleMic}>
-                    {micActive ? 'Arrêter micro' : 'Activer micro'}
-                  </button>
+                  <p class="muted">Flux / Micro</p>
                 </div>
               </div>
               <div class="control">
                 <label for="sim">Vitesse simulation (ms)</label>
-                <input id="sim" type="range" min="60" max="240" step="5" bind:value={simSpeed} />
+                <input
+                  id="sim"
+                  type="range"
+                  min="60"
+                  max="240"
+                  step="5"
+                  bind:value={simSpeed}
+                />
                 <p class="hint">{simSpeed} ms • jitter doux</p>
               </div>
               <div bind:this={chartEl} class="echart"></div>
