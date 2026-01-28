@@ -30,14 +30,14 @@
       id: "swissjazz",
       name: "Radio Swiss Jazz",
       url: "https://stream.srg-ssr.ch/m/rsj/mp3_128",
-      credit: "SRG SSR (MP3 128k)",
+      credit: "Swiss Jazz Radio (MP3 128k)",
       cover: "/bedroom.png",
     },
     {
       id: "fip",
       name: "FIP HiFi",
       url: "https://icecast.radiofrance.fr/fip-hifi.aac",
-      credit: "Radio France (AAC)",
+      credit: "FIP Radio (AAC)",
       cover: "/deskroom.png",
     },
   ];
@@ -52,10 +52,6 @@
   let dataArray: ByteArr | null = null;
   let rafId: number | null = null;
   let canvasEl: HTMLCanvasElement | null = null;
-  let vizParent: HTMLDivElement | null = null;
-  let vizWidth = 0;
-  let vizHeight = 60;
-  let vizDpr = 1;
   let chartEl: HTMLDivElement | null = null;
   let chart: echarts.ECharts | null = null;
   let carouselViewport: HTMLOListElement | null = null;
@@ -83,11 +79,11 @@
   // Zones
   type Zone = { id: string; name: string; img: string; selected: boolean };
   let zones: Zone[] = [
-    { id: "salon", name: "Salon", img: "/salon.png", selected: true },
+    { id: "salon", name: "Salon", img: "/salon.png", selected: false },
     { id: "bureau", name: "Bureau", img: "/deskroom.png", selected: false },
     { id: "chambre", name: "Chambre", img: "/bedroom.png", selected: false },
     { id: "baby", name: "Chambre bébé", img: "/babyroom.png", selected: false },
-    { id: "cuisine", name: "Cuisine", img: "/kitchen.png", selected: true },
+    { id: "cuisine", name: "Cuisine", img: "/kitchen.png", selected: false },
     { id: "sdb", name: "Salle de bain", img: "/bathroom.png", selected: false },
   ];
   let attenuationDb: Record<string, number> = {
@@ -201,107 +197,34 @@
     const canvas = canvasEl;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    resizeViz();
     const draw = () => {
       if (!analyser || !dataArray || !ctx) return;
       analyser.getByteFrequencyData(dataArray);
       if (++tick % 4 === 0) {
         pushDbSample("stream", getDbFromAnalyser(analyser, dataArray));
       }
-      const displayWidth = canvas.width / vizDpr;
-      const displayHeight = canvas.height / vizDpr;
-      ctx.setTransform(vizDpr, 0, 0, vizDpr, 0, 0);
-      ctx.clearRect(0, 0, displayWidth, displayHeight);
-      const padding = 6;
-      const innerWidth = Math.max(0, displayWidth - padding * 2);
-      const innerHeight = Math.max(0, displayHeight - padding * 2);
-      const targetBars = 24;
-      const barCount = targetBars;
-      const minFreq = 50;
-      const nyquist = (audioCtx?.sampleRate ?? 44100) / 2;
-      const maxFreq = Math.min(16000, nyquist);
-      const logRange = Math.log10(maxFreq / minFreq);
-      const barSlot = innerWidth / Math.max(1, barCount);
-      const barWidth = Math.max(2, barSlot * 0.65);
-      let x = padding + (barSlot - barWidth) / 2;
-      for (let i = 0; i < barCount; i++) {
-        const freq = minFreq * Math.pow(10, (i / (barCount - 1)) * logRange);
-        const bin = Math.min(
-          dataArray.length - 1,
-          Math.max(0, Math.round((freq / nyquist) * (dataArray.length - 1))),
-        );
-        const v =
-          (dataArray[bin - 1] ?? dataArray[bin] ?? 0) / 255 +
-          (dataArray[bin] ?? 0) / 255 +
-          (dataArray[bin + 1] ?? dataArray[bin] ?? 0) / 255;
-        const value = v / 3;
-        const norm = Math.log10(freq / minFreq) / logRange;
-        const tilt = 0.45 + 0.55 * norm;
-        const adjusted = Math.min(1, value * tilt * 1.1);
-        const barHeight = adjusted * innerHeight;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const barWidth = (canvas.width / dataArray.length) * 1.6;
+      let x = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const v = dataArray[i] / 255;
+        const barHeight = v * canvas.height;
         const grad = ctx.createLinearGradient(
           0,
-          padding + innerHeight - barHeight,
+          canvas.height - barHeight,
           0,
-          padding + innerHeight,
+          canvas.height,
         );
-        grad.addColorStop(0, "#38bdf8");
+        grad.addColorStop(0, "#7c3aed");
         grad.addColorStop(1, "#0ea5e9");
         ctx.fillStyle = grad;
-        const y = padding + innerHeight - barHeight;
-        const radius = Math.min(6, barWidth / 2, barHeight / 2);
-        ctx.beginPath();
-        ctx.moveTo(x, y + radius);
-        ctx.arcTo(x, y, x + radius, y, radius);
-        ctx.lineTo(x + barWidth - radius, y);
-        ctx.arcTo(x + barWidth, y, x + barWidth, y + radius, radius);
-        ctx.lineTo(x + barWidth, y + barHeight);
-        ctx.lineTo(x, y + barHeight);
-        ctx.closePath();
-        ctx.fill();
-        x += barSlot;
+        ctx.fillRect(x, canvas.height - barHeight, barWidth - 2, barHeight);
+        x += barWidth;
       }
-
-      ctx.save();
-      ctx.strokeStyle = "rgba(15,23,42,0.22)";
-      ctx.fillStyle = "rgba(15,23,42,0.65)";
-      ctx.font = "9px system-ui, sans-serif";
-      const freqs = [30, 60, 120, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000];
-      let lastLabelX = -999;
-      freqs.forEach((freq) => {
-        const px = Math.round(
-          padding + innerWidth * (Math.log10(Math.max(freq, minFreq) / minFreq) / logRange),
-        );
-        if (px <= 8 || px >= displayWidth - 8) return;
-        ctx.beginPath();
-        ctx.moveTo(px, padding);
-        ctx.lineTo(px, displayHeight - padding);
-        ctx.stroke();
-        const label = freq >= 1000 ? `${freq / 1000}kHz` : `${freq}Hz`;
-        if (px - lastLabelX >= 28) {
-          ctx.fillText(label, px + 4, 12);
-          lastLabelX = px;
-        }
-      });
-      ctx.restore();
-
       rafId = requestAnimationFrame(draw);
     };
     if (rafId) cancelAnimationFrame(rafId);
     draw();
-  };
-
-  const resizeViz = () => {
-    if (!canvasEl || !vizParent) return;
-    const rect = vizParent.getBoundingClientRect();
-    if (!rect.width) return;
-    vizDpr = Math.min(window.devicePixelRatio || 1, 2);
-    vizWidth = rect.width;
-    vizHeight = 60;
-    canvasEl.width = Math.round(vizWidth * vizDpr);
-    canvasEl.height = Math.round(vizHeight * vizDpr);
-    canvasEl.style.width = `${vizWidth}px`;
-    canvasEl.style.height = `${vizHeight}px`;
   };
 
   const stopViz = () => {
@@ -451,10 +374,7 @@
 
   onMount(() => {
     initChart();
-    resizeHandler = () => {
-      chart?.resize();
-      resizeViz();
-    };
+    resizeHandler = () => chart?.resize();
     window.addEventListener("resize", resizeHandler);
     if (carouselViewport) {
       carouselTouchStartHandler = (event: TouchEvent) => {
@@ -482,9 +402,13 @@
       carouselPointerUpHandler = () => {
         commitCarouselSelection();
       };
-      carouselViewport.addEventListener("touchstart", carouselTouchStartHandler, {
-        passive: true,
-      });
+      carouselViewport.addEventListener(
+        "touchstart",
+        carouselTouchStartHandler,
+        {
+          passive: true,
+        },
+      );
       carouselViewport.addEventListener("touchmove", carouselTouchMoveHandler, {
         passive: false,
       });
@@ -496,7 +420,6 @@
       });
       requestAnimationFrame(handleCarouselScroll);
     }
-    resizeViz();
   });
 
   onDestroy(() => {
@@ -514,13 +437,19 @@
       );
     }
     if (carouselViewport && carouselTouchMoveHandler) {
-      carouselViewport.removeEventListener("touchmove", carouselTouchMoveHandler);
+      carouselViewport.removeEventListener(
+        "touchmove",
+        carouselTouchMoveHandler,
+      );
     }
     if (carouselViewport && carouselTouchEndHandler) {
       carouselViewport.removeEventListener("touchend", carouselTouchEndHandler);
     }
     if (carouselViewport && carouselPointerUpHandler) {
-      carouselViewport.removeEventListener("pointerup", carouselPointerUpHandler);
+      carouselViewport.removeEventListener(
+        "pointerup",
+        carouselPointerUpHandler,
+      );
     }
   });
 
@@ -605,11 +534,19 @@
           <div class="card-title-row">
             <h2>{key}</h2>
             {#if key === "Zones"}
-              <button class="btn ghost small" type="button" on:click={toggleAllZones}>
+              <button
+                class="btn ghost small"
+                type="button"
+                on:click={toggleAllZones}
+              >
                 {allSelected() ? "Tout décocher" : "Tout sélectionner"}
               </button>
             {:else if key === "Chart"}
-              <button class="btn ghost small" type="button" on:click={toggleMic}>
+              <button
+                class="btn ghost small"
+                type="button"
+                on:click={toggleMic}
+              >
                 {micActive ? "Arrêter micro" : "Activer micro"}
               </button>
             {/if}
@@ -641,13 +578,13 @@
                 >
                   {isPlaying ? "⏸" : "▶"}
                 </button>
-                <div class="viz-shell" bind:this={vizParent}>
-                  <canvas
-                    class="viz"
-                    bind:this={canvasEl}
-                    aria-hidden="true"
-                  ></canvas>
-                </div>
+                <canvas
+                  class="viz"
+                  bind:this={canvasEl}
+                  width="360"
+                  height="60"
+                  aria-hidden="true"
+                ></canvas>
               </div>
 
               <div class="player-meta">
@@ -664,9 +601,7 @@
                   on:scroll={handleCarouselScroll}
                 >
                   {#each streams as s, index (s.id)}
-                    <li
-                      class="carousel__slide"
-                    >
+                    <li class="carousel__slide">
                       <div class="carousel__snapper">
                         <button
                           type="button"
@@ -766,7 +701,9 @@
             </div>
           {:else if key === "Controls"}
             <div class="control global-volume">
-              <label for="global-volume" class="volume-label">Volume global</label>
+              <label for="global-volume" class="volume-label"
+                >Volume global</label
+              >
               <input
                 id="global-volume"
                 type="range"
@@ -775,7 +712,9 @@
                 step="0.01"
                 bind:value={volume}
               />
-              <p class="hint">{Math.round(volume * 100)}% • agit sur toutes les zones</p>
+              <p class="hint">
+                {Math.round(volume * 100)}% • agit sur toutes les zones
+              </p>
             </div>
             <div class="form-row zone-controls">
               {#each zones as zone}
@@ -802,7 +741,9 @@
                     >
                   </select>
                   <label for={`vol-${zone.id}`} class="volume-label">
-                    Volume {zone.name} ({Math.round(Math.min(1, (zoneVolume[zone.id] ?? 1) * volume) * 100)}%)
+                    Volume {zone.name} ({Math.round(
+                      Math.min(1, (zoneVolume[zone.id] ?? 1) * volume) * 100,
+                    )}%)
                   </label>
                   <input
                     id={`vol-${zone.id}`}
