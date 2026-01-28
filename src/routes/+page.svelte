@@ -55,6 +55,7 @@
   let vizWidth = 0;
   let vizHeight = 60;
   let vizDpr = 1;
+  let lastVizValues: number[] | null = null;
   let chartEl: HTMLDivElement | null = null;
   let chart: echarts.ECharts | null = null;
   let carouselViewport: HTMLOListElement | null = null;
@@ -68,6 +69,8 @@
   let carouselTouchStartHandler: ((event: TouchEvent) => void) | null = null;
   let carouselTouchEndHandler: ((event: TouchEvent) => void) | null = null;
   let carouselPointerUpHandler: ((event: PointerEvent) => void) | null = null;
+  let attenuationClickHandler: ((event: MouseEvent) => void) | null = null;
+  let attenuationKeyHandler: ((event: KeyboardEvent) => void) | null = null;
   let micStream: MediaStream | null = null;
   let micAnalyser: AnalyserNode | null = null;
   let micDataArray: ByteArr | null = null;
@@ -105,6 +108,12 @@
     cuisine: 1,
     sdb: 1,
   };
+  const attenuationOptions = [
+    { label: "0 dB", value: 0 },
+    { label: "-6 dB", value: -6 },
+    { label: "-12 dB", value: -12 },
+  ];
+  let openAttenuationId: string | null = null;
 
   // KPIs dynamiques
   let kpis: { label: string; value: string | number }[] = [];
@@ -132,13 +141,23 @@
     updateGain();
   };
 
+  const toggleAttenuationMenu = (id: string) => {
+    openAttenuationId = openAttenuationId === id ? null : id;
+  };
+
+  const selectAttenuation = (id: string, value: number) => {
+    attenuationDb = { ...attenuationDb, [id]: value };
+    updateGain();
+    openAttenuationId = null;
+  };
+
   const ensureAudio = () => {
     if (!audio) {
       audio = new Audio();
       audio.crossOrigin = "anonymous";
       audio.src = current.url;
       audio.preload = "auto";
-      audio.volume = 1;
+      audio.volume = volume;
       audio.onended = () => (isPlaying = false);
     }
     if (!audioCtx) {
@@ -193,6 +212,7 @@
     stopViz();
   };
 
+  $: if (audio) audio.volume = volume;
   $: updateGain();
 
   const resizeViz = () => {
@@ -208,6 +228,89 @@
     canvasEl.style.height = `${vizHeight}px`;
   };
 
+  const drawVizFrame = (values: number[]) => {
+    if (!canvasEl) return;
+    const ctx = canvasEl.getContext("2d");
+    if (!ctx) return;
+    const displayWidth = canvasEl.width / vizDpr;
+    const displayHeight = canvasEl.height / vizDpr;
+    ctx.setTransform(vizDpr, 0, 0, vizDpr, 0, 0);
+    ctx.clearRect(0, 0, displayWidth, displayHeight);
+
+    const padding = 6;
+    const innerWidth = Math.max(0, displayWidth - padding * 2);
+    const innerHeight = Math.max(0, displayHeight - padding * 2);
+    const barCount = values.length;
+    const barSlot = innerWidth / Math.max(1, barCount);
+    const barWidth = Math.max(2, barSlot * 0.65);
+    let x = padding + (barSlot - barWidth) / 2;
+    for (let i = 0; i < barCount; i++) {
+      const value = Math.max(0, Math.min(1, values[i] ?? 0));
+      const barHeight = value * innerHeight;
+      const grad = ctx.createLinearGradient(
+        0,
+        padding + innerHeight - barHeight,
+        0,
+        padding + innerHeight,
+      );
+      grad.addColorStop(0, "#38bdf8");
+      grad.addColorStop(1, "#0ea5e9");
+      ctx.fillStyle = grad;
+      const y = padding + innerHeight - barHeight;
+      const radius = Math.min(6, barWidth / 2, barHeight / 2);
+      ctx.beginPath();
+      ctx.moveTo(x, y + radius);
+      ctx.arcTo(x, y, x + radius, y, radius);
+      ctx.lineTo(x + barWidth - radius, y);
+      ctx.arcTo(x + barWidth, y, x + barWidth, y + radius, radius);
+      ctx.lineTo(x + barWidth, y + barHeight);
+      ctx.lineTo(x, y + barHeight);
+      ctx.closePath();
+      ctx.fill();
+      x += barSlot;
+    }
+
+    ctx.save();
+    ctx.strokeStyle = "rgba(15,23,42,0.22)";
+    ctx.fillStyle = "rgba(15,23,42,0.65)";
+    ctx.font = "9px system-ui, sans-serif";
+    const minFreq = 50;
+    const nyquist = (audioCtx?.sampleRate ?? 44100) / 2;
+    const maxFreq = Math.min(16000, nyquist);
+    const logRange = Math.log10(maxFreq / minFreq);
+    const freqs = [
+      30, 60, 120, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000,
+    ];
+    let lastLabelX = -999;
+    freqs.forEach((freq) => {
+      const px = Math.round(
+        padding +
+          innerWidth *
+            (Math.log10(Math.max(freq, minFreq) / minFreq) / logRange),
+      );
+      if (px <= 8 || px >= displayWidth - 8) return;
+      ctx.beginPath();
+      ctx.moveTo(px, padding);
+      ctx.lineTo(px, displayHeight - padding);
+      ctx.stroke();
+      const label = freq >= 1000 ? `${freq / 1000}kHz` : `${freq}Hz`;
+      if (px - lastLabelX >= 28) {
+        ctx.fillText(label, px + 4, 12);
+        lastLabelX = px;
+      }
+    });
+    ctx.restore();
+  };
+
+  const drawIdleViz = () => {
+    const barCount = 24;
+    const values = Array.from({ length: barCount }, (_, i) => {
+      const wave = Math.sin((i / barCount) * Math.PI * 2);
+      return 0.015 + Math.max(0, wave) * 0.02;
+    });
+    drawVizFrame(values);
+  };
+
   const startViz = () => {
     if (!analyser || !dataArray || !canvasEl) return;
     const canvas = canvasEl;
@@ -220,21 +323,12 @@
       if (++tick % 4 === 0) {
         pushDbSample("stream", getDbFromAnalyser(analyser, dataArray));
       }
-      const displayWidth = canvas.width / vizDpr;
-      const displayHeight = canvas.height / vizDpr;
-      ctx.setTransform(vizDpr, 0, 0, vizDpr, 0, 0);
-      ctx.clearRect(0, 0, displayWidth, displayHeight);
-      const padding = 6;
-      const innerWidth = Math.max(0, displayWidth - padding * 2);
-      const innerHeight = Math.max(0, displayHeight - padding * 2);
       const barCount = 24;
       const minFreq = 50;
       const nyquist = (audioCtx?.sampleRate ?? 44100) / 2;
       const maxFreq = Math.min(16000, nyquist);
       const logRange = Math.log10(maxFreq / minFreq);
-      const barSlot = innerWidth / Math.max(1, barCount);
-      const barWidth = Math.max(2, barSlot * 0.65);
-      let x = padding + (barSlot - barWidth) / 2;
+      const values: number[] = [];
       for (let i = 0; i < barCount; i++) {
         const freq = minFreq * Math.pow(10, (i / (barCount - 1)) * logRange);
         const bin = Math.min(
@@ -248,57 +342,10 @@
         const value = v / 3;
         const norm = Math.log10(freq / minFreq) / logRange;
         const tilt = 0.45 + 0.55 * norm;
-        const adjusted = Math.min(1, value * tilt * 1.1);
-        const barHeight = adjusted * innerHeight;
-        const grad = ctx.createLinearGradient(
-          0,
-          padding + innerHeight - barHeight,
-          0,
-          padding + innerHeight,
-        );
-        grad.addColorStop(0, "#38bdf8");
-        grad.addColorStop(1, "#0ea5e9");
-        ctx.fillStyle = grad;
-        const y = padding + innerHeight - barHeight;
-        const radius = Math.min(6, barWidth / 2, barHeight / 2);
-        ctx.beginPath();
-        ctx.moveTo(x, y + radius);
-        ctx.arcTo(x, y, x + radius, y, radius);
-        ctx.lineTo(x + barWidth - radius, y);
-        ctx.arcTo(x + barWidth, y, x + barWidth, y + radius, radius);
-        ctx.lineTo(x + barWidth, y + barHeight);
-        ctx.lineTo(x, y + barHeight);
-        ctx.closePath();
-        ctx.fill();
-        x += barSlot;
+        values.push(Math.min(1, value * tilt * 1.1));
       }
-
-      ctx.save();
-      ctx.strokeStyle = "rgba(15,23,42,0.22)";
-      ctx.fillStyle = "rgba(15,23,42,0.65)";
-      ctx.font = "9px system-ui, sans-serif";
-      const freqs = [
-        30, 60, 120, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000,
-      ];
-      let lastLabelX = -999;
-      freqs.forEach((freq) => {
-        const px = Math.round(
-          padding +
-            innerWidth *
-              (Math.log10(Math.max(freq, minFreq) / minFreq) / logRange),
-        );
-        if (px <= 8 || px >= displayWidth - 8) return;
-        ctx.beginPath();
-        ctx.moveTo(px, padding);
-        ctx.lineTo(px, displayHeight - padding);
-        ctx.stroke();
-        const label = freq >= 1000 ? `${freq / 1000}kHz` : `${freq}Hz`;
-        if (px - lastLabelX >= 28) {
-          ctx.fillText(label, px + 4, 12);
-          lastLabelX = px;
-        }
-      });
-      ctx.restore();
+      lastVizValues = values;
+      drawVizFrame(values);
 
       rafId = requestAnimationFrame(draw);
     };
@@ -309,9 +356,10 @@
   const stopViz = () => {
     if (rafId) cancelAnimationFrame(rafId);
     rafId = null;
-    if (canvasEl) {
-      const ctx = canvasEl.getContext("2d");
-      ctx?.clearRect(0, 0, canvasEl.width, canvasEl.height);
+    if (lastVizValues && lastVizValues.length) {
+      drawVizFrame(lastVizValues.map((v) => Math.max(0.015, v * 0.15)));
+    } else {
+      drawIdleViz();
     }
   };
 
@@ -458,6 +506,17 @@
       resizeViz();
     };
     window.addEventListener("resize", resizeHandler);
+    attenuationClickHandler = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest(".attenuation-dropdown")) {
+        openAttenuationId = null;
+      }
+    };
+    attenuationKeyHandler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") openAttenuationId = null;
+    };
+    document.addEventListener("click", attenuationClickHandler);
+    document.addEventListener("keydown", attenuationKeyHandler);
     if (carouselViewport) {
       carouselTouchStartHandler = (event: TouchEvent) => {
         const touch = event.touches[0];
@@ -472,7 +531,7 @@
         const dx = touch.clientX - carouselTouchStartX;
         const dy = touch.clientY - carouselTouchStartY;
         if (Math.abs(dx) > Math.abs(dy)) {
-          event.preventDefault();
+          if (event.cancelable) event.preventDefault();
           if (carouselViewport) {
             carouselViewport.scrollLeft = carouselTouchStartLeft - dx;
           }
@@ -510,6 +569,7 @@
       requestAnimationFrame(handleCarouselScroll);
     }
     resizeViz();
+    drawIdleViz();
   });
 
   onDestroy(() => {
@@ -541,6 +601,12 @@
         carouselPointerUpHandler,
       );
     }
+    if (attenuationClickHandler) {
+      document.removeEventListener("click", attenuationClickHandler);
+    }
+    if (attenuationKeyHandler) {
+      document.removeEventListener("keydown", attenuationKeyHandler);
+    }
   });
 
   const updateGain = () => {
@@ -553,7 +619,7 @@
       ? Math.min(...selectedZones.map((z) => zoneVolume[z.id] ?? 1))
       : 1;
     const linear = Math.pow(10, attDb / 20);
-    gainNode.gain.value = volume * zoneVol * linear;
+    gainNode.gain.value = zoneVol * linear;
   };
 
   const handleCarouselScroll = () => {
@@ -605,7 +671,10 @@
   $: kpis = [
     { label: "Zones actives", value: activeZones },
     { label: "Atténuation", value: `${appliedAtt} dB` },
-    { label: "Flux en cours", value: current.name },
+    {
+      label: isPlaying ? "Flux en cours" : "Flux en pause",
+      value: current.name,
+    },
     { label: "Volume", value: `${Math.round(volume * 100)}%` },
   ];
 </script>
@@ -634,7 +703,7 @@
   <div class="grid" aria-label="cards grid">
     {#each cards as key (key)}
       <section
-        class={`glass-card ${key === "Chart" ? "chart-card" : ""} ${key === "Controls" ? "wide-card" : ""} ${collapsed[key] ? "is-collapsed" : ""}`}
+        class={`glass-card ${key === "Chart" ? "chart-card" : ""} ${key === "Controls" ? "wide-card controls-card" : ""} ${key === "Player" ? "player-card" : ""} ${collapsed[key] ? "is-collapsed" : ""}`}
       >
         <header class="card-header">
           <div class="card-title-row">
@@ -656,17 +725,17 @@
                 {micActive ? "Arrêter micro" : "Activer micro"}
               </button>
             {/if}
+            <button
+              class="btn ghost small toggle-mobile"
+              type="button"
+              aria-label={`${collapsed[key] ? "Ouvrir" : "Fermer"} ${key}`}
+              aria-expanded={!collapsed[key]}
+              aria-controls={`card-${key}`}
+              on:click={() => toggleCard(key)}
+            >
+              {collapsed[key] ? "Ouvrir" : "Fermer"}
+            </button>
           </div>
-          <button
-            class="toggle-mobile"
-            type="button"
-            aria-label={`${collapsed[key] ? "Ouvrir" : "Fermer"} ${key}`}
-            aria-expanded={!collapsed[key]}
-            aria-controls={`card-${key}`}
-            on:click={() => toggleCard(key)}
-          >
-            {collapsed[key] ? "Ouvrir" : "Fermer"}
-          </button>
         </header>
 
         <div
@@ -775,7 +844,7 @@
 
               <div class="player-meta">
                 <div>
-                  <p class="eyebrow">En cours</p>
+                  <p class="eyebrow">{isPlaying ? "En cours" : "En pause"}</p>
                 </div>
                 <span class="pill success">{current.credit}</span>
               </div>
@@ -829,26 +898,39 @@
               {#each zones as zone}
                 <div class="control">
                   <label for={`att-${zone.id}`}>Atténuation {zone.name}</label>
-                  <select
-                    id={`att-${zone.id}`}
-                    class="attenuation-select"
-                    on:change={(e) => {
-                      const val = Number((e.target as HTMLSelectElement).value);
-                      attenuationDb = { ...attenuationDb, [zone.id]: val };
-                      updateGain();
-                    }}
-                  >
-                    <option value="0" selected={attenuationDb[zone.id] === 0}
-                      >0 dB</option
+                  <div class="attenuation-dropdown">
+                    <button
+                      id={`att-${zone.id}`}
+                      type="button"
+                      class="attenuation-trigger"
+                      aria-haspopup="listbox"
+                      aria-expanded={openAttenuationId === zone.id}
+                      on:click|stopPropagation={() =>
+                        toggleAttenuationMenu(zone.id)}
                     >
-                    <option value="-6" selected={attenuationDb[zone.id] === -6}
-                      >-6 dB</option
-                    >
-                    <option
-                      value="-12"
-                      selected={attenuationDb[zone.id] === -12}>-12 dB</option
-                    >
-                  </select>
+                      <span>
+                        {attenuationOptions.find(
+                          (opt) => opt.value === attenuationDb[zone.id],
+                        )?.label ?? "0 dB"}
+                      </span>
+                    </button>
+                    {#if openAttenuationId === zone.id}
+                      <div class="attenuation-menu" role="listbox">
+                        {#each attenuationOptions as opt}
+                          <button
+                            type="button"
+                            class={`attenuation-item ${opt.value === attenuationDb[zone.id] ? "active" : ""}`}
+                            role="option"
+                            aria-selected={opt.value === attenuationDb[zone.id]}
+                            on:click={() =>
+                              selectAttenuation(zone.id, opt.value)}
+                          >
+                            {opt.label}
+                          </button>
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
                   <label for={`vol-${zone.id}`} class="volume-label">
                     Volume {zone.name} ({Math.round(
                       Math.min(1, (zoneVolume[zone.id] ?? 1) * volume) * 100,
