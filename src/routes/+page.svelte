@@ -51,6 +51,10 @@
   let dataArray: ByteArr | null = null;
   let rafId: number | null = null;
   let canvasEl: HTMLCanvasElement | null = null;
+  let vizParent: HTMLDivElement | null = null;
+  let vizWidth = 0;
+  let vizHeight = 60;
+  let vizDpr = 1;
   let chartEl: HTMLDivElement | null = null;
   let chart: echarts.ECharts | null = null;
   let carouselViewport: HTMLOListElement | null = null;
@@ -78,11 +82,11 @@
   // Zones
   type Zone = { id: string; name: string; img: string; selected: boolean };
   let zones: Zone[] = [
-    { id: "salon", name: "Salon", img: "/salon.png", selected: false },
+    { id: "salon", name: "Salon", img: "/salon.png", selected: true },
     { id: "bureau", name: "Bureau", img: "/deskroom.png", selected: false },
     { id: "chambre", name: "Chambre", img: "/bedroom.png", selected: false },
     { id: "baby", name: "Chambre bébé", img: "/babyroom.png", selected: false },
-    { id: "cuisine", name: "Cuisine", img: "/kitchen.png", selected: false },
+    { id: "cuisine", name: "Cuisine", img: "/kitchen.png", selected: true },
     { id: "sdb", name: "Salle de bain", img: "/bathroom.png", selected: false },
   ];
   let attenuationDb: Record<string, number> = {
@@ -191,30 +195,68 @@
 
   $: updateGain();
 
+  const resizeViz = () => {
+    if (!canvasEl || !vizParent) return;
+    const rect = vizParent.getBoundingClientRect();
+    if (!rect.width) return;
+    vizDpr = Math.min(window.devicePixelRatio || 1, 2);
+    vizWidth = rect.width;
+    vizHeight = 60;
+    canvasEl.width = Math.round(vizWidth * vizDpr);
+    canvasEl.height = Math.round(vizHeight * vizDpr);
+    canvasEl.style.width = `${vizWidth}px`;
+    canvasEl.style.height = `${vizHeight}px`;
+  };
+
   const startViz = () => {
     if (!analyser || !dataArray || !canvasEl) return;
     const canvas = canvasEl;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    resizeViz();
     const draw = () => {
       if (!analyser || !dataArray || !ctx) return;
       analyser.getByteFrequencyData(dataArray);
       if (++tick % 4 === 0) {
         pushDbSample("stream", getDbFromAnalyser(analyser, dataArray));
       }
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const barWidth = (canvas.width / dataArray.length) * 1.6;
-      let x = 0;
-      for (let i = 0; i < dataArray.length; i++) {
-        const v = dataArray[i] / 255;
-        const barHeight = v * canvas.height;
+      const displayWidth = canvas.width / vizDpr;
+      const displayHeight = canvas.height / vizDpr;
+      ctx.setTransform(vizDpr, 0, 0, vizDpr, 0, 0);
+      ctx.clearRect(0, 0, displayWidth, displayHeight);
+      const padding = 6;
+      const innerWidth = Math.max(0, displayWidth - padding * 2);
+      const innerHeight = Math.max(0, displayHeight - padding * 2);
+      const barCount = 24;
+      const minFreq = 50;
+      const nyquist = (audioCtx?.sampleRate ?? 44100) / 2;
+      const maxFreq = Math.min(16000, nyquist);
+      const logRange = Math.log10(maxFreq / minFreq);
+      const barSlot = innerWidth / Math.max(1, barCount);
+      const barWidth = Math.max(2, barSlot * 0.65);
+      let x = padding + (barSlot - barWidth) / 2;
+      for (let i = 0; i < barCount; i++) {
+        const freq = minFreq * Math.pow(10, (i / (barCount - 1)) * logRange);
+        const bin = Math.min(
+          dataArray.length - 1,
+          Math.max(0, Math.round((freq / nyquist) * (dataArray.length - 1))),
+        );
+        const v =
+          (dataArray[bin - 1] ?? dataArray[bin] ?? 0) / 255 +
+          (dataArray[bin] ?? 0) / 255 +
+          (dataArray[bin + 1] ?? dataArray[bin] ?? 0) / 255;
+        const value = v / 3;
+        const norm = Math.log10(freq / minFreq) / logRange;
+        const tilt = 0.45 + 0.55 * norm;
+        const adjusted = Math.min(1, value * tilt * 1.1);
+        const barHeight = adjusted * innerHeight;
         const grad = ctx.createLinearGradient(
           0,
-          canvas.height - barHeight,
+          padding + innerHeight - barHeight,
           0,
-          canvas.height,
+          padding + innerHeight,
         );
-        grad.addColorStop(0, "#7c3aed");
+        grad.addColorStop(0, "#38bdf8");
         grad.addColorStop(1, "#0ea5e9");
         ctx.fillStyle = grad;
         const y = padding + innerHeight - barHeight;
@@ -411,7 +453,10 @@
 
   onMount(() => {
     initChart();
-    resizeHandler = () => chart?.resize();
+    resizeHandler = () => {
+      chart?.resize();
+      resizeViz();
+    };
     window.addEventListener("resize", resizeHandler);
     if (carouselViewport) {
       carouselTouchStartHandler = (event: TouchEvent) => {
@@ -464,6 +509,7 @@
       });
       requestAnimationFrame(handleCarouselScroll);
     }
+    resizeViz();
   });
 
   onDestroy(() => {
