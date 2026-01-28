@@ -2,13 +2,12 @@
   import { onDestroy, onMount } from "svelte";
   import * as echarts from "echarts";
 
-  type CardKey = "Zones" | "Player" | "KPIs" | "Controls" | "Chart";
-  const cards: CardKey[] = ["Player", "Zones", "KPIs", "Controls", "Chart"];
+  type CardKey = "Zones" | "Player" | "Controls" | "Chart";
+  const cards: CardKey[] = ["Player", "Zones", "Controls", "Chart"];
 
   let collapsed: Record<CardKey, boolean> = {
     Zones: false,
     Player: false,
-    KPIs: false,
     Controls: false,
     Chart: false,
   };
@@ -21,24 +20,24 @@
   const streams = [
     {
       id: "groove",
-      name: "SomaFM — Groove Salad",
+      name: "Groove Salad",
       url: "https://ice2.somafm.com/groovesalad-64-aac",
       credit: "SomaFM (AAC 64k)",
-      cover: "/salon.png",
+      cover: "/soma.png",
     },
     {
       id: "swissjazz",
       name: "Radio Swiss Jazz",
       url: "https://stream.srg-ssr.ch/m/rsj/mp3_128",
       credit: "SRG SSR (MP3 128k)",
-      cover: "/bedroom.png",
+      cover: "/radioswiss.png",
     },
     {
       id: "fip",
       name: "FIP HiFi",
       url: "https://icecast.radiofrance.fr/fip-hifi.aac",
       credit: "Radio France (AAC)",
-      cover: "/deskroom.png",
+      cover: "/fip.png",
     },
   ];
   let current = streams[0];
@@ -266,11 +265,15 @@
       ctx.strokeStyle = "rgba(15,23,42,0.22)";
       ctx.fillStyle = "rgba(15,23,42,0.65)";
       ctx.font = "9px system-ui, sans-serif";
-      const freqs = [30, 60, 120, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000];
+      const freqs = [
+        30, 60, 120, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000,
+      ];
       let lastLabelX = -999;
       freqs.forEach((freq) => {
         const px = Math.round(
-          padding + innerWidth * (Math.log10(Math.max(freq, minFreq) / minFreq) / logRange),
+          padding +
+            innerWidth *
+              (Math.log10(Math.max(freq, minFreq) / minFreq) / logRange),
         );
         if (px <= 8 || px >= displayWidth - 8) return;
         ctx.beginPath();
@@ -482,9 +485,13 @@
       carouselPointerUpHandler = () => {
         commitCarouselSelection();
       };
-      carouselViewport.addEventListener("touchstart", carouselTouchStartHandler, {
-        passive: true,
-      });
+      carouselViewport.addEventListener(
+        "touchstart",
+        carouselTouchStartHandler,
+        {
+          passive: true,
+        },
+      );
       carouselViewport.addEventListener("touchmove", carouselTouchMoveHandler, {
         passive: false,
       });
@@ -514,13 +521,19 @@
       );
     }
     if (carouselViewport && carouselTouchMoveHandler) {
-      carouselViewport.removeEventListener("touchmove", carouselTouchMoveHandler);
+      carouselViewport.removeEventListener(
+        "touchmove",
+        carouselTouchMoveHandler,
+      );
     }
     if (carouselViewport && carouselTouchEndHandler) {
       carouselViewport.removeEventListener("touchend", carouselTouchEndHandler);
     }
     if (carouselViewport && carouselPointerUpHandler) {
-      carouselViewport.removeEventListener("pointerup", carouselPointerUpHandler);
+      carouselViewport.removeEventListener(
+        "pointerup",
+        carouselPointerUpHandler,
+      );
     }
   });
 
@@ -595,21 +608,45 @@
   <title>Glasswave — Grid</title>
 </svelte:head>
 
+<header class="topbar" aria-label="Header principal">
+  <div class="topbar-inner">
+    <span class="brand">AudioHome</span>
+    <button class="btn ghost small" type="button" aria-label="Langue">
+      FR/EN
+    </button>
+  </div>
+</header>
 <main>
+  <div class="info-bar" aria-label="Résumé des infos">
+    {#each kpis as kpi}
+      <div class="info-chip">
+        <span class="info-label">{kpi.label}</span>
+        <span class="info-value">{kpi.value}</span>
+      </div>
+    {/each}
+  </div>
   <div class="grid" aria-label="cards grid">
     {#each cards as key (key)}
       <section
-        class={`glass-card ${key === "Chart" ? "chart-card" : ""} ${collapsed[key] ? "is-collapsed" : ""}`}
+        class={`glass-card ${key === "Chart" ? "chart-card" : ""} ${key === "Controls" ? "wide-card" : ""} ${collapsed[key] ? "is-collapsed" : ""}`}
       >
         <header class="card-header">
           <div class="card-title-row">
             <h2>{key}</h2>
             {#if key === "Zones"}
-              <button class="btn ghost small" type="button" on:click={toggleAllZones}>
+              <button
+                class="btn ghost small"
+                type="button"
+                on:click={toggleAllZones}
+              >
                 {allSelected() ? "Tout décocher" : "Tout sélectionner"}
               </button>
             {:else if key === "Chart"}
-              <button class="btn ghost small" type="button" on:click={toggleMic}>
+              <button
+                class="btn ghost small"
+                type="button"
+                on:click={toggleMic}
+              >
                 {micActive ? "Arrêter micro" : "Activer micro"}
               </button>
             {/if}
@@ -642,19 +679,23 @@
                   {isPlaying ? "⏸" : "▶"}
                 </button>
                 <div class="viz-shell" bind:this={vizParent}>
-                  <canvas
-                    class="viz"
-                    bind:this={canvasEl}
-                    aria-hidden="true"
+                  <canvas class="viz" bind:this={canvasEl} aria-hidden="true"
                   ></canvas>
                 </div>
               </div>
 
-              <div class="player-meta">
-                <div>
-                  <p class="eyebrow">En cours</p>
-                </div>
-                <span class="pill success">{current.credit}</span>
+              <div class="control global-volume">
+                <label for="global-volume" class="volume-label global-volume-label"
+                  >Volume global</label
+                >
+                <input
+                  id="global-volume"
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  bind:value={volume}
+                />
               </div>
 
               <section class="carousel" aria-label="Radios">
@@ -664,9 +705,7 @@
                   on:scroll={handleCarouselScroll}
                 >
                   {#each streams as s, index (s.id)}
-                    <li
-                      class="carousel__slide"
-                    >
+                    <li class="carousel__slide">
                       <div class="carousel__snapper">
                         <button
                           type="button"
@@ -704,7 +743,6 @@
                         </div>
                         <div class="carousel__info">
                           <span class="carousel__title">{s.name}</span>
-                          <span class="carousel__subtitle">{s.credit}</span>
                         </div>
                       </button>
                     </li>
@@ -727,6 +765,13 @@
                   </ol>
                 </aside>
               </section>
+
+              <div class="player-meta">
+                <div>
+                  <p class="eyebrow">En cours</p>
+                </div>
+                <span class="pill success">{current.credit}</span>
+              </div>
             </div>
           {:else if key === "Zones"}
             <div class="zone-grid">
@@ -755,18 +800,11 @@
                 </button>
               {/each}
             </div>
-          {:else if key === "KPIs"}
-            <div class="kpi-grid">
-              {#each kpis as kpi}
-                <div class="kpi">
-                  <span class="label">{kpi.label}</span>
-                  <span class="value">{kpi.value}</span>
-                </div>
-              {/each}
-            </div>
           {:else if key === "Controls"}
             <div class="control global-volume">
-              <label for="global-volume" class="volume-label">Volume global</label>
+              <label for="global-volume" class="volume-label global-volume-label"
+                >Volume global</label
+              >
               <input
                 id="global-volume"
                 type="range"
@@ -775,7 +813,9 @@
                 step="0.01"
                 bind:value={volume}
               />
-              <p class="hint">{Math.round(volume * 100)}% • agit sur toutes les zones</p>
+              <p class="hint">
+                {Math.round(volume * 100)}% • agit sur toutes les zones
+              </p>
             </div>
             <div class="form-row zone-controls">
               {#each zones as zone}
@@ -802,7 +842,9 @@
                     >
                   </select>
                   <label for={`vol-${zone.id}`} class="volume-label">
-                    Volume {zone.name} ({Math.round(Math.min(1, (zoneVolume[zone.id] ?? 1) * volume) * 100)}%)
+                    Volume {zone.name} ({Math.round(
+                      Math.min(1, (zoneVolume[zone.id] ?? 1) * volume) * 100,
+                    )}%)
                   </label>
                   <input
                     id={`vol-${zone.id}`}
