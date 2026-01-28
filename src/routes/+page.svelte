@@ -23,21 +23,21 @@
       name: "FIP HiFi",
       url: "https://icecast.radiofrance.fr/fip-hifi.aac",
       credit: "Radio France (AAC)",
-      cover: "/fip.png",
+      cover: "/fip.webp",
     },
     {
       id: "groove",
       name: "Groove Salad",
       url: "https://ice2.somafm.com/groovesalad-64-aac",
       credit: "SomaFM (AAC 64k)",
-      cover: "/soma.png",
+      cover: "/soma.webp",
     },
     {
       id: "swissjazz",
       name: "Radio Swiss Jazz",
       url: "https://stream.srg-ssr.ch/m/rsj/mp3_128",
       credit: "SRG SSR (MP3 128k)",
-      cover: "/radioswiss.png",
+      cover: "/radioswiss.webp",
     },
   ];
   let current = streams[0];
@@ -87,12 +87,12 @@
   // Zones
   type Zone = { id: string; name: string; img: string; selected: boolean };
   let zones: Zone[] = [
-    { id: "salon", name: "Salon", img: "/salon.png", selected: true },
-    { id: "bureau", name: "Bureau", img: "/deskroom.png", selected: false },
-    { id: "chambre", name: "Chambre", img: "/bedroom.png", selected: false },
-    { id: "baby", name: "Chambre bébé", img: "/babyroom.png", selected: false },
-    { id: "cuisine", name: "Cuisine", img: "/kitchen.png", selected: true },
-    { id: "sdb", name: "Salle de bain", img: "/bathroom.png", selected: false },
+    { id: "salon", name: "Salon", img: "/salon.webp", selected: true },
+    { id: "bureau", name: "Bureau", img: "/deskroom.webp", selected: false },
+    { id: "chambre", name: "Chambre", img: "/bedroom.webp", selected: false },
+    { id: "baby", name: "Chambre bébé", img: "/babyroom.webp", selected: false },
+    { id: "cuisine", name: "Cuisine", img: "/kitchen.webp", selected: true },
+    { id: "sdb", name: "Salle de bain", img: "/bathroom.webp", selected: false },
   ];
   let attenuationDb: Record<string, number> = {
     salon: 0,
@@ -738,7 +738,7 @@
 <header class="topbar" aria-label="Header principal">
   <div class="topbar-inner">
     <span class="brand">
-      <img class="brand-icon" src="/favicon.png" alt="" aria-hidden="true" />
+      <img class="brand-icon" src="/favicon.webp" alt="" aria-hidden="true" />
       AudiHome
     </span>
     <button class="btn ghost small" type="button" aria-label="Langue">
@@ -872,7 +872,6 @@
                       <button
                         class={`carousel__card ${s.id === current.id ? "active" : ""}`}
                         type="button"
-                        on:click={() => setStream(s.id)}
                         aria-pressed={s.id === current.id}
                       >
                         <div class="carousel__cover">
