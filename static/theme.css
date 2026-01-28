@@ -149,8 +149,11 @@ input[type='range'] { accent-color: var(--accent); }
 .audio-row { display: grid; grid-template-columns: 1fr; gap: 8px; }
 .audio-row .meta { display: flex; align-items: center; justify-content: space-between; color: var(--text-soft); font-size: 0.9rem; }
 
-.chart-shell { height: 280px; }
-@media (min-width: 600px) { .chart-shell { height: 320px; } }
+.chart-shell { height: 300px; }
+@media (min-width: 600px) { .chart-shell { height: 340px; } }
+.echart { height: 240px; border-radius: var(--radius-md); overflow: hidden; }
+.chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 10px; }
+.chart-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 @media (min-width: 960px) { .form-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .presence-set { border: none; padding: 0; margin: 0; }
@@ -226,7 +229,8 @@ input[type='range'] { accent-color: var(--accent); }
   flex-wrap: wrap;
 }
 
-.select-shell select {
+.select-shell select,
+.attenuation-select {
   padding: 10px 12px;
   border-radius: var(--radius-md);
   border: 1px solid rgba(15,23,42,0.12);

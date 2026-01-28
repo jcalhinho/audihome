@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
+  import * as echarts from 'echarts';
 
   type CardKey = 'Zones' | 'Player' | 'KPIs' | 'Controls' | 'Chart';
   const cards: CardKey[] = ['Player', 'Zones', 'KPIs', 'Controls', 'Chart'];
@@ -44,9 +45,22 @@
   let audioCtx: AudioContext | null = null;
   let analyser: AnalyserNode | null = null;
   let source: MediaElementAudioSourceNode | null = null;
-  let dataArray: Uint8Array | null = null;
+  type ByteArr = Uint8Array<ArrayBuffer>;
+  let dataArray: ByteArr | null = null;
   let rafId: number | null = null;
   let canvasEl: HTMLCanvasElement | null = null;
+  let chartEl: HTMLDivElement | null = null;
+  let chart: echarts.ECharts | null = null;
+  let micStream: MediaStream | null = null;
+  let micAnalyser: AnalyserNode | null = null;
+  let micDataArray: ByteArr | null = null;
+  let micActive = false;
+  let streamDbHistory: number[] = Array(120).fill(-80);
+  let micDbHistory: number[] = Array(120).fill(-80);
+  let timeLabels: string[] = Array(120).fill('');
+  let tick = 0;
+  let resizeHandler: (() => void) | null = null;
+  let gainNode: GainNode | null = null;
 
   // Zones
   type Zone = { id: string; name: string; img: string; selected: boolean };
@@ -58,9 +72,28 @@
     { id: 'cuisine', name: 'Cuisine', img: '/kitchen.png', selected: false },
     { id: 'sdb', name: 'Salle de bain', img: '/bathroom.png', selected: false }
   ];
+  let attenuationDb: Record<string, number> = {
+    salon: 0,
+    bureau: 0,
+    chambre: 0,
+    baby: -12,
+    cuisine: 0,
+    sdb: 0
+  };
+
+  // KPIs dynamiques
+  let kpis: { label: string; value: string | number }[] = [];
+
+  // Controls
+  let simSpeed = 120;
+  let presence = { salon: true, chambre: false, baby: true };
+
+  // Chart (simple sparkline data)
+  const energyLevels = [62, 65, 63, 67, 70, 66, 64, 62, 65, 68, 64, 63, 66, 67, 65];
 
   const toggleZone = (id: string) => {
     zones = zones.map((z) => (z.id === id ? { ...z, selected: !z.selected } : z));
+    updateGain();
   };
 
   const allSelected = () => zones.every((z) => z.selected);
@@ -68,6 +101,7 @@
   const toggleAllZones = () => {
     const next = !allSelected();
     zones = zones.map((z) => ({ ...z, selected: next }));
+    updateGain();
   };
 
   const ensureAudio = () => {
@@ -86,12 +120,15 @@
       analyser = audioCtx.createAnalyser();
       analyser.fftSize = 64;
       const bufferLength = analyser.frequencyBinCount;
-      dataArray = new Uint8Array(bufferLength);
+      dataArray = new Uint8Array(bufferLength) as ByteArr;
     }
     if (!source && audio && audioCtx && analyser) {
       source = audioCtx.createMediaElementSource(audio);
-      source.connect(analyser);
+      gainNode = audioCtx.createGain();
+      source.connect(gainNode);
+      gainNode.connect(analyser);
       analyser.connect(audioCtx.destination);
+      updateGain();
     }
   };
 
@@ -130,6 +167,7 @@
   };
 
   $: if (audio) audio.volume = volume;
+  $: updateGain();
 
   const startViz = () => {
     if (!analyser || !dataArray || !canvasEl) return;
@@ -139,6 +177,9 @@
     const draw = () => {
       if (!analyser || !dataArray || !ctx) return;
       analyser.getByteFrequencyData(dataArray);
+      if (++tick % 4 === 0) {
+        pushDbSample('stream', getDbFromAnalyser(analyser, dataArray));
+      }
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const barWidth = (canvas.width / dataArray.length) * 1.6;
       let x = 0;
@@ -171,7 +212,126 @@
     audio?.pause();
     stopViz();
     audioCtx?.close();
+    if (micStream) {
+      micStream.getTracks().forEach((t) => t.stop());
+    }
   });
+
+  const getDbFromAnalyser = (an: AnalyserNode, arr: ByteArr) => {
+    let sum = 0;
+    for (let i = 0; i < arr.length; i++) sum += arr[i] * arr[i];
+    const rms = Math.sqrt(sum / arr.length) / 255;
+    const db = 20 * Math.log10(rms || 0.0001);
+    return Math.max(-80, Math.round(db * 10) / 10);
+  };
+
+  const pushDbSample = (kind: 'stream' | 'mic', db: number) => {
+    const label = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    timeLabels = [...timeLabels.slice(1), label];
+    if (kind === 'stream') {
+      streamDbHistory = [...streamDbHistory.slice(1), db];
+    } else {
+      micDbHistory = [...micDbHistory.slice(1), db];
+    }
+    updateChart();
+  };
+
+  const updateChart = () => {
+    if (!chart) return;
+    chart.setOption({
+      xAxis: { type: 'category', data: timeLabels, boundaryGap: false, axisLabel: { color: '#4a5568', fontSize: 10 } },
+      yAxis: { type: 'value', min: -80, max: 0, splitLine: { show: false }, axisLabel: { color: '#4a5568', fontSize: 10, formatter: '{value} dB' } },
+     tooltip: { trigger: 'axis' },
+      grid: { left: 6, right: 6, top: 10, bottom: 8 },
+      series: [
+        {
+          type: 'line',
+          name: 'Flux',
+          data: streamDbHistory,
+          smooth: true,
+          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(124,58,237,0.35)' }, { offset: 1, color: 'rgba(14,165,233,0.05)' }]) },
+          lineStyle: { color: '#7c3aed', width: 2, shadowBlur: 10, shadowColor: 'rgba(124,58,237,0.35)' },
+          showSymbol: false
+        },
+        {
+          type: 'line',
+          name: 'Micro',
+          data: micDbHistory,
+          smooth: true,
+          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: 'rgba(14,165,233,0.3)' }, { offset: 1, color: 'rgba(14,165,233,0.05)' }]) },
+          lineStyle: { color: '#0ea5e9', width: 2, shadowBlur: 10, shadowColor: 'rgba(14,165,233,0.25)' },
+          showSymbol: false
+        }
+      ]
+    });
+  };
+
+  const initChart = () => {
+    if (!chartEl) return;
+    chart = echarts.init(chartEl);
+    updateChart();
+  };
+
+  const toggleMic = async () => {
+    if (micActive) {
+      micStream?.getTracks().forEach((t) => t.stop());
+      micStream = null;
+      micAnalyser = null;
+      micActive = false;
+      return;
+    }
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    if (!audioCtx) audioCtx = new AudioContext();
+    micAnalyser = audioCtx.createAnalyser();
+    micAnalyser.fftSize = 64;
+    micDataArray = new Uint8Array(micAnalyser.frequencyBinCount) as ByteArr;
+    const micSource = audioCtx.createMediaStreamSource(micStream);
+    micSource.connect(micAnalyser);
+    micActive = true;
+    const loop = () => {
+      if (!micActive || !micAnalyser || !micDataArray) return;
+      micAnalyser.getByteFrequencyData(micDataArray);
+      pushDbSample('mic', getDbFromAnalyser(micAnalyser, micDataArray));
+      requestAnimationFrame(loop);
+    };
+    loop();
+  };
+
+  onMount(() => {
+    initChart();
+    resizeHandler = () => chart?.resize();
+    window.addEventListener('resize', resizeHandler);
+  });
+
+  onDestroy(() => {
+    audio?.pause();
+    stopViz();
+    audioCtx?.close();
+    if (resizeHandler) window.removeEventListener('resize', resizeHandler);
+    if (micStream) {
+      micStream.getTracks().forEach((t) => t.stop());
+    }
+  });
+
+  const updateGain = () => {
+    if (!gainNode) return;
+    const selectedZones = zones.filter((z) => z.selected);
+    const attDb = selectedZones.length
+      ? Math.min(...selectedZones.map((z) => attenuationDb[z.id] ?? 0))
+      : 0;
+    const linear = Math.pow(10, attDb / 20);
+    gainNode.gain.value = volume * linear;
+  };
+
+  $: activeZones = zones.filter((z) => z.selected).length;
+  $: appliedAtt =
+    activeZones ? Math.min(...zones.filter((z) => z.selected).map((z) => attenuationDb[z.id] ?? 0)) : 0;
+  $: kpis = [
+    { label: 'Zones actives', value: activeZones },
+    { label: 'Atténuation', value: `${appliedAtt} dB` },
+    { label: 'Flux en cours', value: current.name },
+    { label: 'Volume', value: `${Math.round(volume * 100)}%` }
+  ];
 </script>
 
 <svelte:head>
@@ -274,11 +434,57 @@
               {/each}
             </div>
           {:else if key === 'KPIs'}
-            <p class="muted">KPIs d’usage audio (placeholder).</p>
+            <div class="kpi-grid">
+              {#each kpis as kpi}
+                <div class="kpi">
+                  <span class="label">{kpi.label}</span>
+                  <span class="value">{kpi.value}</span>
+                </div>
+              {/each}
+            </div>
           {:else if key === 'Controls'}
-            <p class="muted">Presets de volume et mute par zone (placeholder).</p>
+            <div class="form-row">
+              {#each zones as zone}
+                <div class="control">
+                  <label for={`att-${zone.id}`}>Atténuation {zone.name}</label>
+                  <select
+                    id={`att-${zone.id}`}
+                    class="attenuation-select"
+                    on:change={(e) => {
+                      const val = Number((e.target as HTMLSelectElement).value);
+                      attenuationDb = { ...attenuationDb, [zone.id]: val };
+                      updateGain();
+                    }}
+                  >
+                    <option value="0" selected={attenuationDb[zone.id] === 0}>0 dB</option>
+                    <option value="-6" selected={attenuationDb[zone.id] === -6}>-6 dB</option>
+                    <option value="-12" selected={attenuationDb[zone.id] === -12}>-12 dB</option>
+                  </select>
+                </div>
+              {/each}
+            </div>
           {:else}
-            <p class="muted">Courbe audio / historique (placeholder).</p>
+            <div class="chart-shell">
+              <div class="chart-header">
+                <div>
+                  <p class="eyebrow">Live dB</p>
+                  <p class="muted">Flux radio / micro</p>
+                </div>
+                <div class="chart-meta">
+                  <span class="pill">{streamDbHistory[streamDbHistory.length - 1] ?? '-'} dB</span>
+                  <span class="pill ghost">{micDbHistory[micDbHistory.length - 1] ?? '-'} dB mic</span>
+                  <button class="btn ghost" type="button" on:click={toggleMic}>
+                    {micActive ? 'Arrêter micro' : 'Activer micro'}
+                  </button>
+                </div>
+              </div>
+              <div class="control">
+                <label for="sim">Vitesse simulation (ms)</label>
+                <input id="sim" type="range" min="60" max="240" step="5" bind:value={simSpeed} />
+                <p class="hint">{simSpeed} ms • jitter doux</p>
+              </div>
+              <div bind:this={chartEl} class="echart"></div>
+            </div>
           {/if}
         </div>
       </section>
