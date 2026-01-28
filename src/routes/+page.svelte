@@ -669,11 +669,12 @@
       )
     : 0;
   $: kpis = [
-    { label: "Zones actives", value: activeZones },
-    { label: "Atténuation", value: `${appliedAtt} dB` },
+    { label: "Zones actives", value: activeZones, status: activeZones > 0 },
+    { label: "Atténuation", value: `${appliedAtt} dB`, status: appliedAtt < 0 },
     {
-      label: isPlaying ? "Flux en cours" : "Flux en pause",
-      value: current.name,
+      label: "Flux",
+      value: isPlaying ? "Lecture" : "Pause",
+      status: isPlaying,
     },
     { label: "Volume", value: `${Math.round(volume * 100)}%` },
   ];
@@ -695,7 +696,15 @@
   <div class="info-bar" aria-label="Résumé des infos">
     {#each kpis as kpi}
       <div class="info-chip">
-        <span class="info-label">{kpi.label}</span>
+        <div class="info-top">
+          <span class="info-label">{kpi.label}</span>
+          {#if kpi.label !== "Volume"}
+            <span
+              class={`info-dot ${kpi.status ? "is-on" : "is-off"}`}
+              aria-hidden="true"
+            ></span>
+          {/if}
+        </div>
         <span class="info-value">{kpi.value}</span>
       </div>
     {/each}
