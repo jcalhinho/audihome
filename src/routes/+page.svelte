@@ -78,9 +78,11 @@
   let streamDbHistory: number[] = Array(120).fill(0);
   let micDbHistory: number[] = Array(120).fill(0);
   let timeLabels: string[] = Array(120).fill("");
-  let tick = 0;
   let resizeHandler: (() => void) | null = null;
   let gainNode: GainNode | null = null;
+  let lastStreamChange = 0;
+  let pendingStreamId: string | null = null;
+  let streamChangeTimer: number | null = null;
 
   // Zones
   type Zone = { id: string; name: string; img: string; selected: boolean };
@@ -122,11 +124,6 @@
   let simSpeed = 120;
   let lastStreamSampleTime = 0;
   let lastMicSampleTime = 0;
-
-  // Chart (simple sparkline data)
-  const energyLevels = [
-    62, 65, 63, 67, 70, 66, 64, 62, 65, 68, 64, 63, 66, 67, 65,
-  ];
 
   const toggleZone = (id: string) => {
     zones = zones.map((z) =>
@@ -183,6 +180,20 @@
   };
 
   const setStream = (id: string) => {
+    const now = performance.now();
+    if (now - lastStreamChange < 300) {
+      pendingStreamId = id;
+      if (streamChangeTimer) clearTimeout(streamChangeTimer);
+      streamChangeTimer = window.setTimeout(() => {
+        if (pendingStreamId) {
+          const nextId = pendingStreamId;
+          pendingStreamId = null;
+          setStream(nextId);
+        }
+      }, 300);
+      return;
+    }
+    lastStreamChange = now;
     const next = streams.find((s) => s.id === id);
     if (!next) return;
     const shouldResume = isPlaying;
@@ -365,16 +376,6 @@
       drawIdleViz();
     }
   };
-
-  onDestroy(() => {
-    audio?.pause();
-    stopViz();
-    audioCtx?.close();
-    if (micStream) {
-      micStream.getTracks().forEach((t) => t.stop());
-    }
-    if (carouselRaf) cancelAnimationFrame(carouselRaf);
-  });
 
   const getDbFromAnalyser = (an: AnalyserNode, arr: ByteArr) => {
     let sum = 0;
@@ -621,6 +622,7 @@
     audio?.pause();
     stopViz();
     audioCtx?.close();
+    chart?.dispose();
     if (resizeHandler) window.removeEventListener("resize", resizeHandler);
     if (micStream) {
       micStream.getTracks().forEach((t) => t.stop());
@@ -652,6 +654,7 @@
     if (attenuationKeyHandler) {
       document.removeEventListener("keydown", attenuationKeyHandler);
     }
+    if (carouselRaf) cancelAnimationFrame(carouselRaf);
   });
 
   const updateGain = () => {
@@ -729,12 +732,15 @@
 </script>
 
 <svelte:head>
-  <title>Glasswave — Grid</title>
+  <title>AUDIHOME</title>
 </svelte:head>
 
 <header class="topbar" aria-label="Header principal">
   <div class="topbar-inner">
-    <span class="brand">AudioHome</span>
+    <span class="brand">
+      <img class="brand-icon" src="/favicon.png" alt="" aria-hidden="true" />
+      AudiHome
+    </span>
     <button class="btn ghost small" type="button" aria-label="Langue">
       FR/EN
     </button>
@@ -782,17 +788,19 @@
                 {micActive ? "Arrêter micro" : "Activer micro"}
               </button>
             {/if}
-          <button
-            class="btn ghost small toggle-mobile"
-            type="button"
-            aria-label={`${collapsed[key] ? "Ouvrir" : "Fermer"} ${key}`}
-            aria-expanded={!collapsed[key]}
-            aria-controls={key === "Controls" ? "card-controls" : `card-${key}`}
-            on:click={() => toggleCard(key)}
-          >
-            {collapsed[key] ? "Ouvrir" : "Fermer"}
-          </button>
-        </div>
+            <button
+              class="btn ghost small toggle-mobile"
+              type="button"
+              aria-label={`${collapsed[key] ? "Ouvrir" : "Fermer"} ${key}`}
+              aria-expanded={!collapsed[key]}
+              aria-controls={key === "Controls"
+                ? "card-controls"
+                : `card-${key}`}
+              on:click={() => toggleCard(key)}
+            >
+              {collapsed[key] ? "Ouvrir" : "Fermer"}
+            </button>
+          </div>
         </header>
 
         <div

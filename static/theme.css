@@ -74,7 +74,7 @@ body::after {
 * { box-sizing: border-box; }
 
 main {
-  padding: 16px;
+  padding: 88px 16px 16px;
   max-width: 1100px;
   margin: 16px auto;
   min-height: calc(100vh - 32px);
@@ -94,7 +94,6 @@ button { font-family: var(--font-body); }
 .layout-grid { display: grid; grid-template-columns: 1fr; gap: var(--grid-gap); }
 
 @media (min-width: 960px) {
-  main { padding: 28px 24px 56px; }
   .layout-grid.twocol { grid-template-columns: 1.1fr 0.9fr; }
 }
 
@@ -937,7 +936,7 @@ input[type='range']::-moz-range-thumb {
   100% { background-position: 0% 50%; }
 }
 .topbar {
-  position: sticky;
+  position: fixed;
   top: 0;
   z-index: 100;
   width: 100%;
@@ -962,7 +961,15 @@ input[type='range']::-moz-range-thumb {
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
   font-weight: 700;
   color: var(--text-strong);
   letter-spacing: 0.02em;
+}
+
+.brand-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 6px;
 }
