@@ -169,9 +169,9 @@ button { font-family: var(--font-body); }
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #ef4444;
-  box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
-  animation: pulse-red 1.8s ease-in-out infinite;
+  background: #94a3b8;
+  box-shadow: 0 0 6px rgba(148, 163, 184, 0.6);
+  animation: pulse-gray 1.8s ease-in-out infinite;
 }
 
 .info-dot.is-on {
@@ -194,7 +194,7 @@ button { font-family: var(--font-body); }
   text-align: right;
 }
 
-@keyframes pulse-red {
+@keyframes pulse-gray {
   0%, 100% { transform: scale(1); opacity: 0.6; }
   50% { transform: scale(1.25); opacity: 1; }
 }
@@ -294,9 +294,28 @@ input[type='range']::-moz-range-thumb {
 .audio-row { display: grid; grid-template-columns: 1fr; gap: 8px; }
 .audio-row .meta { display: flex; align-items: center; justify-content: space-between; color: var(--text-soft); font-size: 0.9rem; }
 
-.chart-shell { height: 280px; }
-@media (min-width: 600px) { .chart-shell { height: 320px; } }
-.echart { height: 240px; border-radius: var(--radius-md); overflow: hidden; }
+.chart-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+}
+
+.chart-card .card-body {
+  height: 100%;
+}
+
+.echart {
+  flex: 1;
+  min-height: 220px;
+  height: 100%;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+@media (max-width: 600px) {
+  .echart { min-height: 200px; }
+}
 .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 10px; }
 @media (min-width: 960px) { .form-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
@@ -737,6 +756,11 @@ input[type='range']::-moz-range-thumb {
   transform: scale(1.1);
 }
 
+.carousel__navigation-button.active {
+  background: rgba(14,165,233,0.85);
+  box-shadow: 0 0 0 6px rgba(14,165,233,0.18);
+}
+
 @media (max-width: 640px) {
   .carousel { padding-top: 72%; }
   .carousel__card { width: 46%; }
@@ -869,7 +893,7 @@ input[type='range']::-moz-range-thumb {
   width: 18px;
   left: 3px;
   top: 3px;
-  background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+  background: #cbd5e1;
   border-radius: 50%;
   transition: transform 160ms ease;
   box-shadow: var(--shadow-float);
@@ -880,11 +904,8 @@ input[type='range']::-moz-range-thumb {
 }
 
 .switch input:checked + .slider:before {
-  transform: translateX(20px);
-}
-
-.switch input:not(:checked) + .slider:before {
   background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+  transform: translateX(20px);
 }
 
 @media (min-width: 960px) {

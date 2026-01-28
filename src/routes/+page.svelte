@@ -19,6 +19,13 @@
   // Player minimal (stream)
   const streams = [
     {
+      id: "fip",
+      name: "FIP HiFi",
+      url: "https://icecast.radiofrance.fr/fip-hifi.aac",
+      credit: "Radio France (AAC)",
+      cover: "/fip.png",
+    },
+    {
       id: "groove",
       name: "Groove Salad",
       url: "https://ice2.somafm.com/groovesalad-64-aac",
@@ -31,13 +38,6 @@
       url: "https://stream.srg-ssr.ch/m/rsj/mp3_128",
       credit: "SRG SSR (MP3 128k)",
       cover: "/radioswiss.png",
-    },
-    {
-      id: "fip",
-      name: "FIP HiFi",
-      url: "https://icecast.radiofrance.fr/fip-hifi.aac",
-      credit: "Radio France (AAC)",
-      cover: "/fip.png",
     },
   ];
   let current = streams[0];
@@ -281,9 +281,7 @@
     const nyquist = (audioCtx?.sampleRate ?? 44100) / 2;
     const maxFreq = Math.min(16000, nyquist);
     const logRange = Math.log10(maxFreq / minFreq);
-    const freqs = [
-      30, 60, 120, 250, 500, 1000, 2000, 4000, 8000, 12000, 16000,
-    ];
+    const freqs = [30, 60, 120, 250, 500, 1000, 2000, 4000, 8000, 16000];
     let lastLabelX = -999;
     freqs.forEach((freq) => {
       const px = Math.round(
@@ -423,6 +421,13 @@
     const micColor = "#36ce9e";
     chart.setOption({
       backgroundColor: "transparent",
+      legend: {
+        top: 6,
+        left: "center",
+        itemWidth: 10,
+        itemHeight: 10,
+        textStyle: { color: "#4a5568", fontSize: 10 },
+      },
       xAxis: {
         type: "category",
         data: timeLabels,
@@ -452,7 +457,7 @@
         extraCssText:
           "border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,0.12);",
       },
-      grid: { left: 10, right: 10, top: 12, bottom: 22 },
+      grid: { left: 10, right: 10, top: 34, bottom: 22 },
       series: [
         {
           type: "line",
@@ -557,6 +562,7 @@
     document.addEventListener("click", attenuationClickHandler);
     document.addEventListener("keydown", attenuationKeyHandler);
     if (carouselViewport) {
+      scrollToCarouselIndex(carouselIndex, "auto");
       carouselTouchStartHandler = (event: TouchEvent) => {
         const touch = event.touches[0];
         if (!touch) return;
@@ -688,7 +694,10 @@
     }
   };
 
-  const scrollToCarouselIndex = (index: number) => {
+  const scrollToCarouselIndex = (
+    index: number,
+    behavior: ScrollBehavior = "smooth",
+  ) => {
     if (!carouselViewport) return;
     const width = carouselViewport.clientWidth;
     const clamped = Math.min(Math.max(0, index), streams.length - 1);
@@ -698,7 +707,7 @@
     if (next && next.id !== current.id) {
       setStream(next.id);
     }
-    carouselViewport.scrollTo({ left: clamped * width, behavior: "smooth" });
+    carouselViewport.scrollTo({ left: clamped * width, behavior });
   };
 
   $: activeZones = zones.filter((z) => z.selected).length;
@@ -878,7 +887,7 @@
                       <li class="carousel__navigation-item">
                         <button
                           type="button"
-                          class="carousel__navigation-button"
+                          class={`carousel__navigation-button ${index === carouselIndex ? "active" : ""}`}
                           aria-label={`Aller à ${s.name}`}
                           on:click={() => scrollToCarouselIndex(index)}
                         >
@@ -1010,7 +1019,7 @@
                 <p class="eyebrow">Live dB • Flux / Micro</p>
               </div>
               <div class="control">
-                <label for="sim">Vitesse simulation (ms)</label>
+                <label for="sim">Vitesse simulation ({simSpeed} ms)</label>
                 <input
                   id="sim"
                   type="range"
@@ -1019,7 +1028,6 @@
                   step="5"
                   bind:value={simSpeed}
                 />
-                <p class="hint">{simSpeed} ms</p>
               </div>
               <div bind:this={chartEl} class="echart"></div>
             </div>
