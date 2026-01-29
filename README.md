@@ -170,3 +170,18 @@ Tests unitaires Vitest sur la logique métier :
 ```bash
 npm run test
 ```
+
+## Note sur la taille du bundle
+
+Le build client peut contenir un chunk assez volumineux (≈ 500 kB minifié / 176 kB gzip). C’est principalement dû à **ECharts**.  
+Je l’ai utilisé parce que c’est la librairie que je maîtrise le mieux et qu’elle colle parfaitement à mon use case (courbes temps réel + options avancées).
+
+### Taille et temps de build (mesure vercel)
+
+- **Client** : ~960 kB
+- **Server** : ~372 kB
+- **Temps de build** : ~8.3 s
+
+### Comparaison indicative avec React
+
+À usage équivalent (Web Audio + visualizer + ECharts + UI), un build React aurait été **comparable**, voire un peu plus lourd selon la stack (lib UI, routing, tooling).
