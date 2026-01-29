@@ -1,9 +1,30 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import * as echarts from "echarts";
+  import PlayerCard from "$lib/components/PlayerCard.svelte";
+  import ZonesCard from "$lib/components/ZonesCard.svelte";
+  import ControlsCard from "$lib/components/ControlsCard.svelte";
+  import ChartCard from "$lib/components/ChartCard.svelte";
+  import TopBar from "$lib/components/TopBar.svelte";
+  import InfoBar from "$lib/components/InfoBar.svelte";
+  import { getDbFromAnalyser, dbToLevel } from "$lib/logic/audioMath";
+  import { buildChartOptions } from "$lib/logic/chartOptions";
+  import {
+    buildKpis,
+    computeGainValue,
+    computeSelectedZoneStats,
+    type Kpi,
+  } from "$lib/logic/zoneAudio";
+  import { t, type I18nKey, type Lang } from "$lib/logic/i18n";
 
+  // Layout state for collapsible cards.
   type CardKey = "Zones" | "Player" | "Controls" | "Chart";
   const cards: CardKey[] = ["Player", "Zones", "Controls", "Chart"];
+  const cardTitleKey: Record<CardKey, I18nKey> = {
+    Player: "cardPlayer",
+    Zones: "cardZones",
+    Controls: "cardControls",
+    Chart: "cardChart",
+  };
 
   let collapsed: Record<CardKey, boolean> = {
     Zones: false,
@@ -16,7 +37,17 @@
     collapsed = { ...collapsed, [key]: !collapsed[key] };
   };
 
-  // Player minimal (stream)
+  // Global UI language (FR/EN toggle).
+  let lang: Lang = "fr";
+
+  const toggleLang = () => {
+    lang = lang === "fr" ? "en" : "fr";
+  };
+
+  let zoneLabel: (id: string) => string;
+  $: zoneLabel = (id: string) => t(lang, `zone_${id}` as I18nKey);
+
+  // Stream catalog and playback state.
   const streams = [
     {
       id: "fip",
@@ -43,6 +74,7 @@
   let current = streams[0];
   let volume = 1;
   let isPlaying = false;
+  // Web Audio graph references (initialized lazily).
   let audio: HTMLAudioElement | null = null;
   let audioCtx: AudioContext | null = null;
   let analyser: AnalyserNode | null = null;
@@ -50,14 +82,20 @@
   type ByteArr = Uint8Array<ArrayBuffer>;
   let dataArray: ByteArr | null = null;
   let rafId: number | null = null;
+  // Visualizer rendering state.
   let canvasEl: HTMLCanvasElement | null = null;
   let vizParent: HTMLDivElement | null = null;
   let vizWidth = 0;
   let vizHeight = 60;
   let vizDpr = 1;
   let lastVizValues: number[] | null = null;
+  // ECharts state (lazy loaded).
   let chartEl: HTMLDivElement | null = null;
-  let chart: echarts.ECharts | null = null;
+  type EChartsCore = typeof import("echarts/core");
+  let echarts: EChartsCore | null = null;
+  let chart: import("echarts/core").ECharts | null = null;
+  let chartObserver: IntersectionObserver | null = null;
+  // Carousel interaction state.
   let carouselViewport: HTMLOListElement | null = null;
   let carouselIndex = 0;
   let pendingCarouselIndex = 0;
@@ -71,6 +109,7 @@
   let carouselPointerUpHandler: ((event: PointerEvent) => void) | null = null;
   let attenuationClickHandler: ((event: MouseEvent) => void) | null = null;
   let attenuationKeyHandler: ((event: KeyboardEvent) => void) | null = null;
+  // Microphone capture state.
   let micStream: MediaStream | null = null;
   let micAnalyser: AnalyserNode | null = null;
   let micDataArray: ByteArr | null = null;
@@ -84,15 +123,25 @@
   let pendingStreamId: string | null = null;
   let streamChangeTimer: number | null = null;
 
-  // Zones
+  // Zones and attenuation settings.
   type Zone = { id: string; name: string; img: string; selected: boolean };
   let zones: Zone[] = [
     { id: "salon", name: "Salon", img: "/salon.webp", selected: true },
     { id: "bureau", name: "Bureau", img: "/deskroom.webp", selected: false },
     { id: "chambre", name: "Chambre", img: "/bedroom.webp", selected: false },
-    { id: "baby", name: "Chambre bébé", img: "/babyroom.webp", selected: false },
+    {
+      id: "baby",
+      name: "Chambre bébé",
+      img: "/babyroom.webp",
+      selected: false,
+    },
     { id: "cuisine", name: "Cuisine", img: "/kitchen.webp", selected: true },
-    { id: "sdb", name: "Salle de bain", img: "/bathroom.webp", selected: false },
+    {
+      id: "sdb",
+      name: "Salle de bain",
+      img: "/bathroom.webp",
+      selected: false,
+    },
   ];
   let attenuationDb: Record<string, number> = {
     salon: 0,
@@ -117,10 +166,10 @@
   ];
   let openAttenuationId: string | null = null;
 
-  // KPIs dynamiques
-  let kpis: { label: string; value: string | number }[] = [];
+  // KPI snapshot shown in the info bar.
+  let kpis: Kpi[] = [];
 
-  // Controls
+  // Sampling cadence for the chart (ms).
   let simSpeed = 120;
   let lastStreamSampleTime = 0;
   let lastMicSampleTime = 0;
@@ -150,6 +199,16 @@
     openAttenuationId = null;
   };
 
+  const handleZoneVolumeInput = (id: string, rawValue: number) => {
+    const base = volume > 0 ? rawValue / volume : 0;
+    zoneVolume = {
+      ...zoneVolume,
+      [id]: Math.min(1, Math.max(0, base)),
+    };
+    updateGain();
+  };
+
+  // Create AudioContext + nodes only when first needed.
   const ensureAudio = () => {
     if (!audio) {
       audio = new Audio();
@@ -208,6 +267,7 @@
     }
   };
 
+  // Playback controls keep UI state and visualizer in sync.
   const play = async () => {
     ensureAudio();
     await audioCtx?.resume();
@@ -226,6 +286,7 @@
     stopViz();
   };
 
+  // Keep the HTMLAudioElement in sync with the UI volume slider.
   $: if (audio) audio.volume = volume;
   $: updateGain();
 
@@ -242,6 +303,7 @@
     canvasEl.style.height = `${vizHeight}px`;
   };
 
+  // Render a single visualizer frame into the canvas.
   const drawVizFrame = (values: number[]) => {
     if (!canvasEl) return;
     const ctx = canvasEl.getContext("2d");
@@ -323,6 +385,7 @@
     drawVizFrame(values);
   };
 
+  // Drive the visualizer and feed the chart sampling loop.
   const startViz = () => {
     if (!analyser || !dataArray || !canvasEl) return;
     const canvas = canvasEl;
@@ -367,6 +430,7 @@
     draw();
   };
 
+  // Stop the visualizer and leave a subtle idle state.
   const stopViz = () => {
     if (rafId) cancelAnimationFrame(rafId);
     rafId = null;
@@ -377,29 +441,7 @@
     }
   };
 
-  const getDbFromAnalyser = (an: AnalyserNode, arr: ByteArr) => {
-    let sum = 0;
-    for (let i = 0; i < arr.length; i++) sum += arr[i] * arr[i];
-    const rms = Math.sqrt(sum / arr.length) / 255;
-    const db = 20 * Math.log10(rms || 0.0001);
-    return Math.max(-80, Math.round(db * 10) / 10);
-  };
-
-  const dbToLevel = (db: number) => {
-    const norm = Math.max(0, Math.min(1, (db + 80) / 80));
-    const boosted = Math.pow(norm, 0.6);
-    return Math.round(boosted * 80 * 10) / 10;
-  };
-
-  const hexToRgba = (hex: string, opacity: number) => {
-    const sanitized = hex.replace("#", "");
-    if (sanitized.length !== 6) return `rgba(0,0,0,${opacity})`;
-    const r = parseInt(sanitized.slice(0, 2), 16);
-    const g = parseInt(sanitized.slice(2, 4), 16);
-    const b = parseInt(sanitized.slice(4, 6), 16);
-    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
-  };
-
+  // Append a new sample to the rolling time series and update the chart.
   const pushDbSample = (kind: "stream" | "mic", db: number) => {
     const label = new Date().toLocaleTimeString([], {
       hour: "2-digit",
@@ -416,102 +458,45 @@
     updateChart();
   };
 
+  // Push new data into the chart without re-creating the instance.
   const updateChart = () => {
-    if (!chart) return;
-    const fluxColor = "#0ea5e9";
-    const micColor = "#36ce9e";
-    chart.setOption({
-      backgroundColor: "transparent",
-      legend: {
-        top: 6,
-        left: "center",
-        itemWidth: 10,
-        itemHeight: 10,
-        textStyle: { color: "#4a5568", fontSize: 10 },
-      },
-      xAxis: {
-        type: "category",
-        data: timeLabels,
-        boundaryGap: false,
-        axisLabel: { color: "#4a5568", fontSize: 10 },
-        axisLine: { lineStyle: { color: "rgba(15,23,42,0.18)" } },
-        axisTick: { show: false },
-      },
-      yAxis: {
-        type: "value",
-        min: 0,
-        max: 80,
-        splitLine: {
-          show: true,
-          lineStyle: { color: "rgba(15,23,42,0.12)", type: "dashed" },
-        },
-        axisLabel: { color: "#4a5568", fontSize: 10, formatter: "{value} dB" },
-        axisLine: { lineStyle: { color: "rgba(15,23,42,0.18)" } },
-        axisTick: { show: false },
-      },
-      tooltip: {
-        trigger: "axis",
-        backgroundColor: "rgba(255,255,255,0.98)",
-        borderWidth: 1,
-        borderColor: "rgba(15,23,42,0.08)",
-        textStyle: { color: "#0f172a", fontSize: 12 },
-        extraCssText:
-          "border-radius:12px;box-shadow:0 10px 30px rgba(15,23,42,0.12);",
-      },
-      grid: { left: 10, right: 10, top: 34, bottom: 22 },
-      series: [
-        {
-          type: "line",
-          name: "Flux",
-          data: streamDbHistory,
-          smooth: true,
-          symbolSize: 6,
-          showSymbol: false,
-          lineStyle: {
-            color: fluxColor,
-            width: 2.5,
-            shadowBlur: 10,
-            shadowColor: hexToRgba(fluxColor, 0.4),
-            shadowOffsetY: 6,
-          },
-          areaStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: hexToRgba(fluxColor, 0.28) },
-              { offset: 1, color: hexToRgba(fluxColor, 0.08) },
-            ]),
-          },
-        },
-        {
-          type: "line",
-          name: "Micro",
-          data: micDbHistory,
-          smooth: true,
-          symbolSize: 6,
-          showSymbol: false,
-          lineStyle: {
-            color: micColor,
-            width: 2,
-            shadowBlur: 10,
-            shadowColor: hexToRgba(micColor, 0.35),
-            shadowOffsetY: 6,
-          },
-          areaStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: hexToRgba(micColor, 0.25) },
-              { offset: 1, color: hexToRgba(micColor, 0.06) },
-            ]),
-          },
-        },
-      ],
-    });
+    if (!chart || !echarts) return;
+    chart.setOption(
+      buildChartOptions(echarts, timeLabels, streamDbHistory, micDbHistory, {
+        stream: t(lang, "kpiStream"),
+        mic: t(lang, "mic"),
+      }),
+    );
   };
 
-  const initChart = () => {
-    if (!chartEl) return;
+  // Lazy-load ECharts core + components only when the card is visible.
+  const ensureEcharts = async () => {
+    if (echarts) return;
+    const echartsCore = await import("echarts/core");
+    const { LineChart } = await import("echarts/charts");
+    const { GridComponent, TooltipComponent, LegendComponent } = await import(
+      "echarts/components"
+    );
+    const { CanvasRenderer } = await import("echarts/renderers");
+    echartsCore.use([
+      LineChart,
+      GridComponent,
+      TooltipComponent,
+      LegendComponent,
+      CanvasRenderer,
+    ]);
+    echarts = echartsCore;
+  };
+
+  const initChart = async () => {
+    if (!chartEl || chart) return;
+    await ensureEcharts();
+    if (!echarts) return;
     chart = echarts.init(chartEl);
     updateChart();
   };
 
+  // Toggle microphone capture and feed samples into the chart.
   const toggleMic = async () => {
     if (micActive) {
       micStream?.getTracks().forEach((t) => t.stop());
@@ -544,13 +529,30 @@
     loop();
   };
 
+  // Global event wiring for resize, carousel gestures, and menu close logic.
   onMount(() => {
-    initChart();
     resizeHandler = () => {
       chart?.resize();
       resizeViz();
     };
     window.addEventListener("resize", resizeHandler);
+    if (chartEl) {
+      if ("IntersectionObserver" in window) {
+        chartObserver = new IntersectionObserver(
+          (entries) => {
+            if (entries.some((entry) => entry.isIntersecting)) {
+              void initChart();
+              chartObserver?.disconnect();
+              chartObserver = null;
+            }
+          },
+          { rootMargin: "200px" },
+        );
+        chartObserver.observe(chartEl);
+      } else {
+        void initChart();
+      }
+    }
     attenuationClickHandler = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
       if (!target?.closest(".attenuation-dropdown")) {
@@ -654,28 +656,27 @@
     if (attenuationKeyHandler) {
       document.removeEventListener("keydown", attenuationKeyHandler);
     }
+    if (chartObserver) {
+      chartObserver.disconnect();
+      chartObserver = null;
+    }
     if (carouselRaf) cancelAnimationFrame(carouselRaf);
   });
 
+  // Apply the min attenuation + volume from selected zones to the gain node.
   const updateGain = () => {
     if (!gainNode) return;
-    const selectedZones = zones.filter((z) => z.selected);
-    const attDb = selectedZones.length
-      ? Math.min(...selectedZones.map((z) => attenuationDb[z.id] ?? 0))
-      : 0;
-    const zoneVol = selectedZones.length
-      ? Math.min(...selectedZones.map((z) => zoneVolume[z.id] ?? 1))
-      : 1;
-    const linear = Math.pow(10, attDb / 20);
-    gainNode.gain.value = zoneVol * linear;
+    gainNode.gain.value = computeGainValue(zones, attenuationDb, zoneVolume);
   };
 
+  // Track the closest carousel card while the user scrolls/swipes.
   const handleCarouselScroll = () => {
     if (!carouselViewport) return;
     if (carouselRaf) return;
     carouselRaf = requestAnimationFrame(() => {
       carouselRaf = null;
-      const width = carouselViewport?.clientWidth ?? 0;
+      if (!carouselViewport) return;
+      const width = carouselViewport.clientWidth;
       if (!width) return;
       const rawIndex = Math.round(carouselViewport.scrollLeft / width);
       const nextIndex = Math.min(
@@ -688,6 +689,7 @@
     });
   };
 
+  // Commit the pending carousel index and switch stream if needed.
   const commitCarouselSelection = () => {
     if (pendingCarouselIndex === carouselIndex) return;
     carouselIndex = pendingCarouselIndex;
@@ -713,71 +715,45 @@
     carouselViewport.scrollTo({ left: clamped * width, behavior });
   };
 
-  $: activeZones = zones.filter((z) => z.selected).length;
-  $: appliedAtt = activeZones
-    ? Math.min(
-        ...zones.filter((z) => z.selected).map((z) => attenuationDb[z.id] ?? 0),
-      )
-    : 0;
-  $: kpis = [
-    { label: "Zones actives", value: activeZones, status: activeZones > 0 },
-    { label: "Atténuation", value: `${appliedAtt} dB`, status: appliedAtt < 0 },
-    {
-      label: "Flux",
-      value: isPlaying ? "Lecture" : "Pause",
-      status: isPlaying,
-    },
-    { label: "Volume", value: `${Math.round(volume * 100)}%` },
-  ];
+  // Derived UI state (KPIs).
+  $: ({ activeCount: activeZones, appliedAtt } = computeSelectedZoneStats(
+    zones,
+    attenuationDb,
+    zoneVolume,
+  ));
+  $: kpis = buildKpis(lang, activeZones, appliedAtt, isPlaying, volume);
 </script>
 
 <svelte:head>
   <title>AUDIHOME</title>
 </svelte:head>
 
-<header class="topbar" aria-label="Header principal">
-  <div class="topbar-inner">
-    <span class="brand">
-      <img class="brand-icon" src="/favicon.webp" alt="" aria-hidden="true" />
-      AudiHome
-    </span>
-    <button class="btn ghost small" type="button" aria-label="Langue">
-      FR/EN
-    </button>
-  </div>
-</header>
+<TopBar
+  title="AudiHome"
+  iconSrc="/favicon.webp"
+  langLabel={lang === "fr" ? "EN" : "FR"}
+  {lang}
+  onToggleLang={toggleLang}
+/>
 <main>
-  <div class="info-bar" aria-label="Résumé des infos">
-    {#each kpis as kpi}
-      <div class="info-chip">
-        <div class="info-top">
-          <span class="info-label">{kpi.label}</span>
-          {#if kpi.label !== "Volume"}
-            <span
-              class={`info-dot ${kpi.status ? "is-on" : "is-off"}`}
-              aria-hidden="true"
-            ></span>
-          {/if}
-        </div>
-        <span class="info-value">{kpi.value}</span>
-      </div>
-    {/each}
-  </div>
-  <div class="grid" aria-label="cards grid">
+  <InfoBar {kpis} {lang} />
+  <div class="grid" aria-label={t(lang, "cardsGridLabel")}>
     {#each cards as key (key)}
       <section
         class={`glass-card ${key === "Chart" ? "chart-card" : ""} ${key === "Controls" ? "wide-card controls-card" : ""} ${key === "Player" ? "player-card" : ""} ${collapsed[key] ? "is-collapsed" : ""}`}
       >
         <header class="card-header">
           <div class="card-title-row">
-            <h2>{key}</h2>
+            <h2>{t(lang, cardTitleKey[key])}</h2>
             {#if key === "Zones"}
               <button
                 class="btn ghost small header-action"
                 type="button"
                 on:click={toggleAllZones}
               >
-                {allSelected() ? "Tout décocher" : "Tout sélectionner"}
+                {allSelected()
+                  ? t(lang, "deselectAll")
+                  : t(lang, "selectAll")}
               </button>
             {:else if key === "Chart"}
               <button
@@ -785,13 +761,13 @@
                 type="button"
                 on:click={toggleMic}
               >
-                {micActive ? "Arrêter micro" : "Activer micro"}
+                {micActive ? t(lang, "stopMic") : t(lang, "startMic")}
               </button>
             {/if}
             <button
               class="btn ghost small toggle-mobile"
               type="button"
-              aria-label={`${collapsed[key] ? "Ouvrir" : "Fermer"} ${key}`}
+              aria-label={`${collapsed[key] ? t(lang, "open") : t(lang, "close")} ${t(lang, cardTitleKey[key])}`}
               aria-expanded={!collapsed[key]}
               aria-controls={key === "Controls"
                 ? "card-controls"
@@ -808,236 +784,39 @@
           id={key === "Controls" ? "card-controls" : `card-${key}`}
         >
           {#if key === "Player"}
-            <div class="player-shell">
-              <div class="player-row">
-                <button
-                  class={`icon-btn primary ${isPlaying ? "active" : ""}`}
-                  type="button"
-                  on:click={isPlaying ? pause : play}
-                  aria-label={isPlaying ? "Pause" : "Lecture"}
-                >
-                  {isPlaying ? "⏸" : "▶"}
-                </button>
-                <div class="viz-shell" bind:this={vizParent}>
-                  <canvas class="viz" bind:this={canvasEl} aria-hidden="true"
-                  ></canvas>
-                </div>
-              </div>
-
-              <div class="control global-volume">
-                <label
-                  for="global-volume"
-                  class="volume-label global-volume-label">Volume global</label
-                >
-                <input
-                  id="global-volume"
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  bind:value={volume}
-                />
-              </div>
-
-              <section class="carousel" aria-label="Radios">
-                <ol
-                  class="carousel__viewport"
-                  bind:this={carouselViewport}
-                  on:scroll={handleCarouselScroll}
-                >
-                  {#each streams as s, index (s.id)}
-                    <li class="carousel__slide">
-                      <div class="carousel__snapper">
-                        <button
-                          type="button"
-                          class="carousel__prev"
-                          on:click={() =>
-                            scrollToCarouselIndex(
-                              index === 0 ? streams.length - 1 : index - 1,
-                            )}
-                        >
-                          Précédent
-                        </button>
-                        <button
-                          type="button"
-                          class="carousel__next"
-                          on:click={() =>
-                            scrollToCarouselIndex(
-                              index === streams.length - 1 ? 0 : index + 1,
-                            )}
-                        >
-                          Suivant
-                        </button>
-                      </div>
-                      <button
-                        class={`carousel__card ${s.id === current.id ? "active" : ""}`}
-                        type="button"
-                        aria-pressed={s.id === current.id}
-                      >
-                        <div class="carousel__cover">
-                          <img
-                            src={s.cover}
-                            alt={`Pochette ${s.name}`}
-                            loading="lazy"
-                          />
-                        </div>
-                        <div class="carousel__info">
-                          <span class="carousel__title">{s.name}</span>
-                        </div>
-                      </button>
-                    </li>
-                  {/each}
-                </ol>
-                <aside class="carousel__navigation">
-                  <ol class="carousel__navigation-list">
-                    {#each streams as s, index (s.id)}
-                      <li class="carousel__navigation-item">
-                        <button
-                          type="button"
-                          class={`carousel__navigation-button ${index === carouselIndex ? "active" : ""}`}
-                          aria-label={`Aller à ${s.name}`}
-                          on:click={() => scrollToCarouselIndex(index)}
-                        >
-                          {index + 1}
-                        </button>
-                      </li>
-                    {/each}
-                  </ol>
-                </aside>
-              </section>
-
-              <div class="player-meta">
-                <div>
-                  <p class="eyebrow">{isPlaying ? "En cours" : "En pause"}</p>
-                </div>
-                <span class="pill success">{current.credit}</span>
-              </div>
-            </div>
+            <PlayerCard
+              bind:canvasEl
+              bind:carouselViewport
+              bind:vizParent
+              {carouselIndex}
+              {current}
+              {handleCarouselScroll}
+              {isPlaying}
+              {lang}
+              {pause}
+              {play}
+              {scrollToCarouselIndex}
+              {streams}
+              bind:volume
+            />
           {:else if key === "Zones"}
-            <div class="zone-grid">
-              {#each zones as zone (zone.id)}
-                <button
-                  type="button"
-                  class={`zone-card ${zone.selected ? "active" : ""}`}
-                  on:click={() => toggleZone(zone.id)}
-                  aria-pressed={zone.selected}
-                >
-                  <div class="zone-header">
-                    <span class="zone-pill top">{zone.name}</span>
-                    <label class="switch">
-                      <input
-                        type="checkbox"
-                        checked={zone.selected}
-                        on:click|stopPropagation
-                        on:change={() => toggleZone(zone.id)}
-                      />
-                      <span class="slider"></span>
-                    </label>
-                  </div>
-                  <div class="zone-image">
-                    <img src={zone.img} alt={zone.name} loading="lazy" />
-                  </div>
-                </button>
-              {/each}
-            </div>
+            <ZonesCard {zones} {toggleZone} {zoneLabel} />
           {:else if key === "Controls"}
-            <div class="control global-volume">
-              <label
-                for="global-volume"
-                class="volume-label global-volume-label">Volume global</label
-              >
-              <input
-                id="global-volume"
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                bind:value={volume}
-              />
-              <p class="hint">
-                {Math.round(volume * 100)}% • agit sur toutes les zones
-              </p>
-            </div>
-            <div class="form-row zone-controls">
-              {#each zones as zone}
-                <div class="control">
-                  <label for={`att-${zone.id}`}>Atténuation {zone.name}</label>
-                  <div class="attenuation-dropdown">
-                    <button
-                      id={`att-${zone.id}`}
-                      type="button"
-                      class="attenuation-trigger"
-                      aria-haspopup="listbox"
-                      aria-expanded={openAttenuationId === zone.id}
-                      on:click|stopPropagation={() =>
-                        toggleAttenuationMenu(zone.id)}
-                    >
-                      <span>
-                        {attenuationOptions.find(
-                          (opt) => opt.value === attenuationDb[zone.id],
-                        )?.label ?? "0 dB"}
-                      </span>
-                    </button>
-                    {#if openAttenuationId === zone.id}
-                      <div class="attenuation-menu" role="listbox">
-                        {#each attenuationOptions as opt}
-                          <button
-                            type="button"
-                            class={`attenuation-item ${opt.value === attenuationDb[zone.id] ? "active" : ""}`}
-                            role="option"
-                            aria-selected={opt.value === attenuationDb[zone.id]}
-                            on:click={() =>
-                              selectAttenuation(zone.id, opt.value)}
-                          >
-                            {opt.label}
-                          </button>
-                        {/each}
-                      </div>
-                    {/if}
-                  </div>
-                  <label for={`vol-${zone.id}`} class="volume-label">
-                    Volume {zone.name} ({Math.round(
-                      Math.min(1, (zoneVolume[zone.id] ?? 1) * volume) * 100,
-                    )}%)
-                  </label>
-                  <input
-                    id={`vol-${zone.id}`}
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.01"
-                    value={Math.min(1, (zoneVolume[zone.id] ?? 1) * volume)}
-                    on:input={(e) => {
-                      const val = Number((e.target as HTMLInputElement).value);
-                      const base = volume > 0 ? val / volume : 0;
-                      zoneVolume = {
-                        ...zoneVolume,
-                        [zone.id]: Math.min(1, Math.max(0, base)),
-                      };
-                      updateGain();
-                    }}
-                  />
-                </div>
-              {/each}
-            </div>
+            <ControlsCard
+              {attenuationDb}
+              {attenuationOptions}
+              {lang}
+              {openAttenuationId}
+              {selectAttenuation}
+              {toggleAttenuationMenu}
+              {zoneVolume}
+              {zoneLabel}
+              {zones}
+              bind:volume
+              onZoneVolumeInput={handleZoneVolumeInput}
+            />
           {:else}
-            <div class="chart-shell">
-              <div class="chart-header">
-                <p class="eyebrow">Live dB • Flux / Micro</p>
-              </div>
-              <div class="control">
-                <label for="sim">Vitesse simulation ({simSpeed} ms)</label>
-                <input
-                  id="sim"
-                  type="range"
-                  min="100"
-                  max="500"
-                  step="5"
-                  bind:value={simSpeed}
-                />
-              </div>
-              <div bind:this={chartEl} class="echart"></div>
-            </div>
+            <ChartCard bind:chartEl bind:simSpeed {lang} />
           {/if}
         </div>
       </section>
