@@ -89,6 +89,7 @@
   let vizHeight = 60;
   let vizDpr = 1;
   let lastVizValues: number[] | null = null;
+  let vizObserver: ResizeObserver | null = null;
   // ECharts state (lazy loaded).
   let chartEl: HTMLDivElement | null = null;
   type EChartsCore = typeof import("echarts/core");
@@ -571,6 +572,17 @@
     }
     resizeViz();
     drawIdleViz();
+    if ("ResizeObserver" in window && vizParent) {
+      vizObserver = new ResizeObserver(() => {
+        resizeViz();
+        if (isPlaying) {
+          startViz();
+        } else {
+          drawIdleViz();
+        }
+      });
+      vizObserver.observe(vizParent);
+    }
   });
 
   onDestroy(() => {
@@ -601,6 +613,10 @@
     if (carouselRaf) cancelAnimationFrame(carouselRaf);
     if (carouselScrollEndTimer) {
       window.clearTimeout(carouselScrollEndTimer);
+    }
+    if (vizObserver) {
+      vizObserver.disconnect();
+      vizObserver = null;
     }
   });
 

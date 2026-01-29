@@ -9,6 +9,7 @@ Ce dépôt contient une interface autour de la musique, avec une navigation flui
 ## Présentation rapide
 
 AudiHome, c’est un tableau de bord pour piloter la diffusion audio dans plusieurs pièces. Sur navigateur ou mobile.
+Pour le style, j'ai essayé de faire un truc simple et moderne a la fois,les gouts et les couleurs comme on dit... :) je prefere l'UX à l'UI bien que l'un ne va pas sans l'autre.
 
 ### Fonctionnalités actuelles
 
