@@ -177,10 +177,11 @@
     updateGain();
   };
 
-  const allSelected = () => zones.every((z) => z.selected);
+  let allZonesSelected = false;
+  $: allZonesSelected = zones.every((z) => z.selected);
 
   const toggleAllZones = () => {
-    const next = !allSelected();
+    const next = !allZonesSelected;
     zones = zones.map((z) => ({ ...z, selected: next }));
     updateGain();
   };
@@ -714,7 +715,7 @@
                 type="button"
                 on:click={toggleAllZones}
               >
-                {allSelected()
+                {allZonesSelected
                   ? t(lang, "deselectAll")
                   : t(lang, "selectAll")}
               </button>
@@ -737,7 +738,7 @@
                 : `card-${key}`}
               on:click={() => toggleCard(key)}
             >
-              {collapsed[key] ? "Ouvrir" : "Fermer"}
+              {collapsed[key] ? t(lang, "open") : t(lang, "close")}
             </button>
           </div>
         </header>
