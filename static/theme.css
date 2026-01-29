@@ -15,9 +15,9 @@
   --text-strong: #0b182f;
   --text-default: #17233d;
   --text-soft: #334155;
-  --radius-lg: 22px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
+  --radius-lg: 11px;
+  --radius-md: 7px;
+  --radius-sm: 5px;
   --blur: 22px;
   --card-padding: 16px;
   --grid-gap: 16px;
@@ -77,6 +77,7 @@ body::after {
 
 * {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
 main {
@@ -112,6 +113,7 @@ p {
 
 button {
   font-family: var(--font-body);
+  user-select: none;
 }
 
 .layout-grid {
@@ -848,7 +850,7 @@ input[type="range"]::-moz-range-thumb {
   filter: drop-shadow(0 10px 20px rgba(15, 23, 42, 0.12));
   perspective: 100px;
   overscroll-behavior: contain;
-  touch-action: pan-x;
+  touch-action: auto;
 }
 
 .carousel ol,
@@ -869,8 +871,8 @@ input[type="range"]::-moz-range-thumb {
   scrollbar-width: none;
   scrollbar-color: transparent transparent;
   overscroll-behavior-x: contain;
-  overscroll-behavior-y: contain;
-  touch-action: pan-x;
+  overscroll-behavior-y: auto;
+  touch-action: auto;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -953,7 +955,8 @@ input[type="range"]::-moz-range-thumb {
     transform 160ms ease,
     box-shadow 160ms ease,
     border 160ms ease;
-  touch-action: pan-x;
+  touch-action: auto;
+  user-select: none;
 }
 
 .carousel__card:hover {
@@ -969,6 +972,7 @@ input[type="range"]::-moz-range-thumb {
   overflow: hidden;
   background: rgba(255, 255, 255, 0.6);
   aspect-ratio: 1 / 1;
+  touch-action: auto;
 }
 
 .carousel__cover img {
@@ -1021,6 +1025,7 @@ input[type="range"]::-moz-range-thumb {
     transform 120ms ease,
     background 120ms ease;
   cursor: pointer;
+  user-select: none;
 }
 
 

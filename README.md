@@ -1,12 +1,14 @@
 # AudiHome
 
+https://audihome.vercel.app/
+
 ## Contexte du projet
 
-Ce dépôt contient une interface autour de la musique, avec une navigation fluide (sliding) et une visualisation de données. Et au final, en faire un vrai dashboard domotique crédible, propre et maintenable.
+Ce dépôt contient une interface autour de la musique, avec une navigation fluide (sliding) et une visualisation de données. Un dashboard domotique moderne, propre et maintenable.
 
 ## Présentation rapide
 
-AudiHome, c’est un tableau de bord pour piloter la diffusion audio dans plusieurs pièces. Tout se passe sur une seule interface.
+AudiHome, c’est un tableau de bord pour piloter la diffusion audio dans plusieurs pièces. Sur navigateur ou mobile.
 
 ### Fonctionnalités actuelles
 
@@ -109,11 +111,13 @@ Suite a notre entretien ou nous avions parler de svelte, faire une SPA en react 
 
 J’ai choisi **SvelteKit** car je voulais :
 
-1. un routing propre si je dois faire évoluer l’app,
-2. un build out‑of‑the‑box solide pour déployer vite,
-3. garder la possibilité SSR/SSG si demain c’est un vrai produit.
+-un routing propre si je dois faire évoluer l’app
+-un build out‑of‑the‑box solide pour déployer vite
 
-J’ai aussi pris SvelteKit pour retrouver quelques **parallèles avec React** (routing, organisation, conventions) afin d’être plus à l’aise tout en sortant de ma stack habituelle. Et en vrai, pour un projet aussi petit, **Svelte seul aurait suffi**, mais SvelteKit donne un cadre plus évolutif.
+- garder la possibilité SSR/SSG.
+
+(oui, je sais ce n'est qu'une démo mais c'est toujours cool de penser evolution)
+J’ai aussi pris SvelteKit pour retrouver quelques parallèles avec React (routing, organisation, conventions) afin d’être plus à l’aise tout en sortant de ma stack habituelle. Et en vrai, pour un projet aussi petit, Svelte seul aurait suffi, mais SvelteKit donne un cadre plus évolutif.
 
 ### React vs SvelteKit (avantages / inconvénients)
 
@@ -132,8 +136,11 @@ J’ai aussi pris SvelteKit pour retrouver quelques **parallèles avec React** (
 - Écosystème plus jeune
 - Moins de “standards” industry que React
 
-En bref : React = robuste et universel, SvelteKit = rapide, léger et ultra efficace pour ce type de dashboard.  
-C’est pour ça que je l’ai choisi ici.
+En bref : React = robuste et universel, SvelteKit = rapide, léger et ultra efficace pour ce type de dashboard.
+
+## Le constat
+
+Côté UX/UI, si j'ai bien constaté une difficulté, c'est réussir à rendre une app de type dashboard/controller/metric reader lisible et sympa à utiliser sur téléphone. Le plus gros problème étant l'affichage de graphiques sur petit écran. Durant mes années en R&D dataviz, on me disait : « Le responsive ? On s'arrête au format tablette, personne ne regarde des graphes sur téléphone... » sauf que beaucoup trop de gens utilisent leurs téléphones aujourd'hui, on ne peut pas faire l'impasse sur ce format même en dataviz.
 
 ## Installation
 

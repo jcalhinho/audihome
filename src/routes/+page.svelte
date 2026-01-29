@@ -100,12 +100,7 @@
   let carouselIndex = 0;
   let pendingCarouselIndex = 0;
   let carouselRaf: number | null = null;
-  let carouselTouchStartX = 0;
-  let carouselTouchStartY = 0;
-  let carouselTouchStartLeft = 0;
-  let carouselTouchMoveHandler: ((event: TouchEvent) => void) | null = null;
-  let carouselTouchStartHandler: ((event: TouchEvent) => void) | null = null;
-  let carouselTouchEndHandler: ((event: TouchEvent) => void) | null = null;
+  let carouselScrollEndTimer: number | null = null;
   let carouselPointerUpHandler: ((event: PointerEvent) => void) | null = null;
   let attenuationClickHandler: ((event: MouseEvent) => void) | null = null;
   let attenuationKeyHandler: ((event: KeyboardEvent) => void) | null = null;
@@ -566,51 +561,9 @@
     document.addEventListener("keydown", attenuationKeyHandler);
     if (carouselViewport) {
       scrollToCarouselIndex(carouselIndex, "auto");
-      carouselTouchStartHandler = (event: TouchEvent) => {
-        const touch = event.touches[0];
-        if (!touch) return;
-        carouselTouchStartX = touch.clientX;
-        carouselTouchStartY = touch.clientY;
-        carouselTouchStartLeft = carouselViewport?.scrollLeft ?? 0;
-      };
-      carouselTouchMoveHandler = (event: TouchEvent) => {
-        const touch = event.touches[0];
-        if (!touch) return;
-        const dx = touch.clientX - carouselTouchStartX;
-        const dy = touch.clientY - carouselTouchStartY;
-        if (Math.abs(dx) > Math.abs(dy)) {
-          if (event.cancelable) event.preventDefault();
-          if (carouselViewport) {
-            carouselViewport.scrollLeft = carouselTouchStartLeft - dx;
-          }
-        }
-      };
-      carouselTouchEndHandler = () => {
-        commitCarouselSelection();
-      };
       carouselPointerUpHandler = () => {
         commitCarouselSelection();
       };
-      carouselViewport.addEventListener(
-        "touchstart",
-        carouselTouchStartHandler,
-        {
-          passive: true,
-        },
-      );
-      carouselViewport.addEventListener(
-        "touchstart",
-        carouselTouchStartHandler,
-        {
-          passive: true,
-        },
-      );
-      carouselViewport.addEventListener("touchmove", carouselTouchMoveHandler, {
-        passive: false,
-      });
-      carouselViewport.addEventListener("touchend", carouselTouchEndHandler, {
-        passive: true,
-      });
       carouselViewport.addEventListener("pointerup", carouselPointerUpHandler, {
         passive: true,
       });
@@ -629,21 +582,6 @@
     if (micStream) {
       micStream.getTracks().forEach((t) => t.stop());
     }
-    if (carouselViewport && carouselTouchStartHandler) {
-      carouselViewport.removeEventListener(
-        "touchstart",
-        carouselTouchStartHandler,
-      );
-    }
-    if (carouselViewport && carouselTouchMoveHandler) {
-      carouselViewport.removeEventListener(
-        "touchmove",
-        carouselTouchMoveHandler,
-      );
-    }
-    if (carouselViewport && carouselTouchEndHandler) {
-      carouselViewport.removeEventListener("touchend", carouselTouchEndHandler);
-    }
     if (carouselViewport && carouselPointerUpHandler) {
       carouselViewport.removeEventListener(
         "pointerup",
@@ -661,6 +599,9 @@
       chartObserver = null;
     }
     if (carouselRaf) cancelAnimationFrame(carouselRaf);
+    if (carouselScrollEndTimer) {
+      window.clearTimeout(carouselScrollEndTimer);
+    }
   });
 
   // Apply the min attenuation + volume from selected zones to the gain node.
@@ -686,6 +627,12 @@
       if (nextIndex !== pendingCarouselIndex) {
         pendingCarouselIndex = nextIndex;
       }
+      if (carouselScrollEndTimer) {
+        window.clearTimeout(carouselScrollEndTimer);
+      }
+      carouselScrollEndTimer = window.setTimeout(() => {
+        commitCarouselSelection();
+      }, 140);
     });
   };
 
